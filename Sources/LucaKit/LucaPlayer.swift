@@ -331,7 +331,7 @@ public final class LucaPlayer {
             messageKey = Self.key(frame.script.name, frame.script.instructions[frame.index - 1].position)
             windowVisible = true
             backlog.append(message!)
-            if backlog.count > 300 { backlog.removeFirst() }
+            if backlog.count > 500 { backlog.removeFirst() }
             if voice > 0 { sounds.append(.voice(id: Int(voice))) }
             wait = .click
         case .select(let values, let japanese, let english, _, _):
@@ -807,7 +807,7 @@ public final class LucaPlayer {
                      callStack: callStack.map { .init(script: $0.script.name, index: $0.index) },
                      variables: variables, strings: strings, layers: layers, presented: presented,
                      windowVisible: windowVisible, message: message, choices: choices,
-                     choiceVariable: choiceVariable, choiceIndices: choiceIndices, choicePrompt: choicePrompt, choiceDetails: choiceDetails, musicID: musicID, effects: effects, backlog: Array(backlog.suffix(100)))
+                     choiceVariable: choiceVariable, choiceIndices: choiceIndices, choicePrompt: choicePrompt, choiceDetails: choiceDetails, musicID: musicID, effects: effects, backlog: Array(backlog.suffix(500)))
     }
 
     /// Resumes a saved game: the stage as it was, the music again, and the same line waiting

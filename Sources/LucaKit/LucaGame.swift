@@ -73,6 +73,19 @@ public final class LucaGame: @unchecked Sendable {
 
     public func imageName(_ id: Int) -> String? { imageEntry(id)?.1.name }
 
+    /// An animated effect (an MVT in BGMOVIE.PAK, numbered among the pictures), or nil when
+    /// `id` is a picture.
+    public func mvt(_ id: Int) -> (header: WebM.MVTHeader, webm: WebM)? {
+        guard let (archive, entry) = imageEntry(id), let data = try? archive.data(for: entry),
+              data.prefix(3) == Data("MVT".utf8) else { return nil }
+        return try? WebM.mvt(data)
+    }
+
+    /// Whether `id` names an MVT (everything in BGMOVIE.PAK is one).
+    public func isMVT(_ id: Int) -> Bool {
+        imageEntry(id)?.0.url.lastPathComponent.uppercased() == "BGMOVIE.PAK"
+    }
+
     /// A picture's global id by name (any image archive).
     public func imageID(named name: String) -> Int? {
         for archive in images {

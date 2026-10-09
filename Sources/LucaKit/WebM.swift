@@ -195,8 +195,14 @@ public struct WebM: Sendable {
         public var displayWidth: Int
         public var displayHeight: Int
         public var fps: Int
-        /// The video holds its alpha below the picture (twice as tall as it shows).
-        public var packedAlpha: Bool { displayHeight * 2 == height && displayWidth == width }
+        /// The video holds its alpha below the picture (the top half is colour).
+        public var alphaBelow: Bool { displayHeight * 2 == height && displayWidth == width }
+        /// The video holds its alpha right of the picture (the left half is colour).
+        public var alphaRight: Bool { displayWidth * 2 == width && displayHeight == height }
+        /// The size it covers on the 1920×1080 screen: the display size, or the whole video
+        /// when the alpha is packed beside the picture.
+        public var shownWidth: Int { alphaRight || alphaBelow ? width : displayWidth }
+        public var shownHeight: Int { alphaRight || alphaBelow ? height : displayHeight }
     }
 
     public static func mvt(_ data: Data) throws -> (header: MVTHeader, webm: WebM) {
