@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreText
 import Foundation
 import ImageIO
 import LucaKit
@@ -225,6 +226,53 @@ case "orphans":
                 }
             }
         }
+    } catch { fail("\(error)") }
+
+case "mvt":
+    // luca-cli mvt <pak> <entry> <out.webm>: an MVT's WebM, for ffmpeg.
+    guard rest.count >= 3 else { fail("mvt <pak> <entry> <out.webm>") }
+    let archive = pak(rest[0])
+    guard let entry = archive.entry(named: rest[1]) else { fail("no entry") }
+    do {
+        let data = try archive.data(for: entry)
+        let b = [UInt8](data.prefix(64))
+        guard let start = (0..<60).first(where: { b[$0] == 0x1A && b[$0 + 1] == 0x45 && b[$0 + 2] == 0xDF && b[$0 + 3] == 0xA3 }) else { fail("not MVT") }
+        print(try WebM.mvt(data).header)
+        try data.subdata(in: (data.startIndex + start)..<data.endIndex).write(to: URL(fileURLWithPath: rest[2]))
+    } catch { fail("\(error)") }
+
+case "sheet":
+    // luca-cli sheet <base folder> <out.png> <id|name>...: pictures on grey in a grid, labelled.
+    guard rest.count >= 3 else { fail("sheet <base folder> <out.png> <id|name>...") }
+    do {
+        let game = try LucaGame(root: URL(fileURLWithPath: rest[0]))
+        var ids: [Int] = []
+        for key in rest.dropFirst(2) {
+            if let id = Int(key) { ids.append(id); continue }
+            for archive in game.images { if let e = archive.entry(named: key) { ids.append(e.id); break } }
+        }
+        let cell = 480, cols = 4, rows = (ids.count + cols - 1) / cols
+        guard let ctx = CGContext(data: nil, width: cell * cols, height: (cell + 24) * rows, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { fail("ctx") }
+        ctx.setFillColor(CGColor(red: 0.25, green: 0.25, blue: 0.3, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: cell * cols, height: (cell + 24) * rows))
+        for (i, id) in ids.enumerated() {
+            guard let image = game.image(id), let cg = cgImage(image) else { continue }
+            let col = i % cols, row = i / cols
+            let scale = min(Double(cell - 8) / Double(image.width), Double(cell - 8) / Double(image.height))
+            let w = Double(image.width) * scale, h = Double(image.height) * scale
+            let top = Double((rows - row) * (cell + 24))
+            ctx.draw(cg, in: CGRect(x: Double(col * cell) + 4, y: top - 24 - h - 4, width: w, height: h))
+            let label = "\(id) \(game.imageName(id) ?? "") \(image.width)x\(image.height)@\(image.offsetX),\(image.offsetY)"
+            let font = CTFontCreateWithName("Menlo" as CFString, 13, nil)
+            let attr = CFAttributedStringCreate(nil, label as CFString, [kCTFontAttributeName: font,
+                kCTForegroundColorAttributeName: CGColor(red: 1, green: 1, blue: 0.6, alpha: 1)] as CFDictionary)!
+            ctx.textPosition = CGPoint(x: Double(col * cell) + 4, y: top - 18)
+            CTLineDraw(CTLineCreateWithAttributedString(attr), ctx)
+        }
+        let dest = CGImageDestinationCreateWithURL(URL(fileURLWithPath: rest[1]) as CFURL, UTType.png.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(dest, ctx.makeImage()!, nil)
+        CGImageDestinationFinalize(dest)
     } catch { fail("\(error)") }
 
 case "webm":

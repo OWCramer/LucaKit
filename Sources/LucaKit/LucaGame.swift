@@ -73,6 +73,14 @@ public final class LucaGame: @unchecked Sendable {
 
     public func imageName(_ id: Int) -> String? { imageEntry(id)?.1.name }
 
+    /// A picture's global id by name (any image archive).
+    public func imageID(named name: String) -> Int? {
+        for archive in images {
+            if let entry = archive.entry(named: name) { return entry.id }
+        }
+        return nil
+    }
+
     private var frames: [Int: (x: Int, y: Int, width: Int, height: Int)] = [:]
 
     /// For a character face overlay (`F_BS3_RU02010111`), the sprite it belongs to
