@@ -505,6 +505,23 @@ public final class LucaPlayer {
         }
     }
 
+    /// Pictures the script will load soon (from here, not following jumps), so the host can
+    /// decode them ahead of time.
+    public func upcomingImages(lookahead: Int = 80) -> [Int] {
+        var ids: [Int] = []
+        let instructions = frame.script.instructions
+        var i = frame.index
+        while i < instructions.count, i < frame.index + lookahead {
+            let instruction = instructions[i]
+            let name = LucaOpcodes.name(instruction.opcode, table: table)
+            if (name == "IMAGELOAD" || name == "IMAGEUPDATE"), instruction.params.count >= 4 {
+                ids.append(Int(UInt16(instruction.params[2]) | UInt16(instruction.params[3]) << 8))
+            }
+            i += 1
+        }
+        return ids
+    }
+
     // MARK: Saves
 
     /// Everything needed to carry on from here. Saved while waiting for a click (or a

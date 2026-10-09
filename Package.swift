@@ -9,7 +9,9 @@ let package = Package(
         .executable(name: "luca-cli", targets: ["luca-cli"]),
     ],
     targets: [
-        .target(name: "LucaKit"),
+        // Optimised even in Debug: the image decoders run per picture, and unoptimised
+        // Swift takes seconds over a 3840×2160 background.
+        .target(name: "LucaKit", swiftSettings: [.unsafeFlags(["-O"])]),
         // Developer tool: lists archives, dumps scripts and exports images from the Mac.
         .executableTarget(name: "luca-cli", dependencies: ["LucaKit"]),
         .testTarget(name: "LucaKitTests", dependencies: ["LucaKit"]),
