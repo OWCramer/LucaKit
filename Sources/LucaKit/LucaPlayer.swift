@@ -23,9 +23,17 @@ public struct LucaLayer: Sendable, Equatable, Codable {
 
     /// Top-left corner on the 1920×1080 screen for a picture of this size (scaled).
     public func origin(width: Double, height: Double, offsetX: Double, offsetY: Double) -> (x: Double, y: Double) {
-        if scroll { return (960 - width / 2 + x, 540 - height / 2 + y) }
         if centred { return (x - width / 2, y + offsetY * scale) }
-        return (x + offsetX * scale, y + offsetY * scale)
+        var origin = scroll ? (x: 960 - width / 2 + x, y: 540 - height / 2 + y)
+                            : (x: x + offsetX * scale, y: y + offsetY * scale)
+        // A background at least as big as the screen never shows past its edge: pans whose
+        // coordinates Shiori reads differently from the PC engine stop at the picture's edge
+        // instead of showing black.
+        if kind == 0 {
+            if width >= 1920 { origin.x = min(0, max(1920 - width, origin.x)) }
+            if height >= 1080 { origin.y = min(0, max(1080 - height, origin.y)) }
+        }
+        return origin
     }
 
     public var kind: Int { number & 0xFF }
@@ -169,7 +177,9 @@ public final class LucaPlayer {
         case .frames(let n):
             wait = n > 1 ? .frames(n - 1) : .none
         case .transition:
-            if transition == nil && tweens.isEmpty { wait = .none }
+            // A bare WAIT waits for the DRAW only: long camera pans (35–55 s) carry on under
+            // the story.
+            if transition == nil { wait = .none }
         default:
             break
         }
@@ -184,6 +194,10 @@ public final class LucaPlayer {
             run()
         } else if transition != nil {
             transition = nil
+        } else if case .frames = wait {
+            // A tap cuts a pause short, as on PC.
+            wait = .none
+            run()
         }
     }
 

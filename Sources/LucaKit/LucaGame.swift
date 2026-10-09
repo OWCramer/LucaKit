@@ -99,6 +99,12 @@ public final class LucaGame: @unchecked Sendable {
 
     /// For a character expression (`BS1_KY03010116`), its pose's base picture
     /// (`BS1_KY03010101`); nil for bases and other pictures.
+    /// For a name ending in a two-digit number other than 01, the same name ending in 01.
+    static func patchBase(_ name: String) -> String? {
+        guard name.count > 4, name.suffix(2).allSatisfy(\.isNumber), !name.hasSuffix("01") else { return nil }
+        return String(name.dropLast(2)) + "01"
+    }
+
     static func characterBase(_ name: String) -> String? {
         let upper = name.uppercased()
         guard upper.hasPrefix("BS"), let underscore = upper.firstIndex(of: "_"),
@@ -125,9 +131,13 @@ public final class LucaGame: @unchecked Sendable {
             cacheLock.unlock()
             return nil
         }
-        // Character expressions are face patches over the pose's first picture: BS2_AO01030116
-        // is drawn on BS2_AO01030101.
-        if let base = Self.characterBase(entry.name), let baseEntry = archive.entry(named: base),
+        // Expressions are patches over their set's first picture: BS2_AO01030116 is drawn on
+        // BS2_AO01030101, and event CGs the same way (cg_sr09_0102 on CG_SR09_0101). A patch is
+        // smaller than its base.
+        if let base = Self.patchBase(entry.name), let baseEntry = archive.entry(named: base),
+           baseEntry.id != entry.id,
+           let baseFrame = (try? archive.data(for: baseEntry)).flatMap(CZImage.frame(of:)),
+           image.width * image.height < baseFrame.width * baseFrame.height,
            let baseImage = self.image(baseEntry.id) {
             image = baseImage.composited(with: image)
         }
