@@ -127,6 +127,7 @@ case "play":
         var shown = 0
         var frames = 0
         var mapVisits = 0
+        var lastLine: LucaPlayer.State?
         if let resume = ProcessInfo.processInfo.environment["LUCA_RESUME"],
            let data = FileManager.default.contents(atPath: resume) {
             try player.restore(JSONDecoder().decode(LucaPlayer.State.self, from: data))
@@ -135,10 +136,20 @@ case "play":
         while shown < clicks, !player.finished, frames < 2_000_000 {
             player.tick()
             frames += 1
+            if let movie = player.movie {
+                print("MOVIE \(movie)")
+                if ProcessInfo.processInfo.environment["LUCA_STOP_AT_MOVIE"] != nil, let lastLine {
+                    try JSONEncoder().encode(lastLine).write(to: out.appendingPathComponent("before-movie.json"))
+                    print("stopped before the movie; state of the line before it saved")
+                    break
+                }
+                player.movieFinished()
+            }
             for sound in player.sounds { print("  sound \(sound)") }
             for notice in player.notices { print("NOTICE \(notice)") }
             player.notices.removeAll()
             player.sounds.removeAll()
+            if player.isWaitingForClick { lastLine = player.saveState() }
             if player.isWaitingForClick, player.transition == nil {
                 if let m = player.message {
                     print("[\(player.currentScript)@\(player.currentPosition) f\(frames)] #\(shown) \(m.speaker.map { "\($0): " } ?? "")\(m.text)")

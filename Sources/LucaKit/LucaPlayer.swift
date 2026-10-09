@@ -94,6 +94,9 @@ public final class LucaPlayer {
     /// Things the PC executable shows over the story (the day's date, items acquired), for
     /// the host to show briefly; drained by the host.
     public var notices: [LucaNotice] = []
+    /// A movie (`files/movie/<name>.webm`) the host should play now; the script waits until
+    /// the host calls `movieFinished()`.
+    public private(set) var movie: String?
     /// Text shown so far, for the backlog.
     public private(set) var backlog: [LucaMessage] = []
     public private(set) var finished = false
@@ -113,6 +116,7 @@ public final class LucaPlayer {
         case none
         case frames(Int)
         case click
+        case movie
         case choice(variable: Int)
         case transition
     }
@@ -146,7 +150,9 @@ public final class LucaPlayer {
 
     /// The speaker's face shown at the left of the text window: the whole sprite, its centre
     /// at `x` and its top at `y` relative to the window, clipped by the window.
-    public var windowFace: LucaLayer? { presented.values.first { $0.kind == 7 } }
+    /// It belongs to the next line only: the script loads it just before each line that has one.
+    public var windowFace: LucaLayer? { layers.values.first { $0.kind == 7 } }
+    private var faceLoadedForLine = false
 
     public var isWaitingForClick: Bool {
         if case .click = wait { return true }
@@ -186,6 +192,14 @@ public final class LucaPlayer {
         variables[variable] = choiceIndices.indices.contains(index) ? choiceIndices[index] : index
         choices = nil
         choicePrompt = nil
+        wait = .none
+        run()
+    }
+
+    /// The movie ended (or was skipped).
+    public func movieFinished() {
+        guard case .movie = wait else { return }
+        movie = nil
         wait = .none
         run()
     }
@@ -271,6 +285,8 @@ public final class LucaPlayer {
             let raw = english.isEmpty ? japanese : english
             if raw.isEmpty { break } // an empty MESSAGE ends a voiced pause
             let parsed = Self.parse(raw, strings: strings)
+            if !faceLoadedForLine { layers = layers.filter { $0.value.kind != 7 } }
+            faceLoadedForLine = false
             message = LucaMessage(speaker: parsed.speaker, text: parsed.text, voice: Int(voice))
             windowVisible = true
             backlog.append(message!)
@@ -302,7 +318,10 @@ public final class LucaPlayer {
             wait = .choice(variable: Int(values[0]))
         case .varstrSet(_, let variable, let japanese, let english, _):
             strings[Int(variable)] = english.isEmpty ? japanese : english
-        case .logBegin, .dialog, .movie:
+        case .movie(let file, _):
+            movie = file
+            wait = .movie
+        case .logBegin, .dialog:
             break
         case .expression:
             break
@@ -360,6 +379,7 @@ public final class LucaPlayer {
         case "IMAGELOAD":
             let number = Int(r.u16())
             let id = Int(r.u16())
+            if number & 0xFF == 7 { faceLoadedForLine = true }
             var layer = layers[number] ?? LucaLayer(number: number, imageID: id)
             layer.imageID = id
             if instruction.params.count >= 14 {
@@ -379,6 +399,7 @@ public final class LucaPlayer {
             if var layer = layers[number] {
                 layer.imageID = id
                 layers[number] = layer
+                if number & 0xFF == 7 { faceLoadedForLine = true }
             }
         case "INIT":
             let number = Int(r.u16())
