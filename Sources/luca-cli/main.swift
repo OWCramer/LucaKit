@@ -145,7 +145,9 @@ case "play":
                         }
                     }
                 }
-                renderStage(player, to: out.appendingPathComponent(String(format: "%03d.png", shown)))
+                if ProcessInfo.processInfo.environment["LUCA_NO_PNG"] == nil {
+                    renderStage(player, to: out.appendingPathComponent(String(format: "%03d.png", shown)))
+                }
                 shown += 1
                 player.click()
             } else if let choices = player.choices {

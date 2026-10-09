@@ -71,6 +71,8 @@ public final class LucaPlayer {
     public private(set) var message: LucaMessage?
     public private(set) var windowVisible = false
     public private(set) var choices: [String]?
+    /// For each choice shown, its number in the script (options can be hidden).
+    private var choiceIndices: [Int] = []
     /// A DRAW in progress: the host crossfades from the stage as it was to the stage now.
     public private(set) var transition: (frames: Int, elapsed: Int)?
     /// Bumped whenever a DRAW starts, so the host knows to snapshot the old stage.
@@ -160,7 +162,7 @@ public final class LucaPlayer {
 
     public func choose(_ index: Int) {
         guard case .choice(let variable) = wait else { return }
-        variables[variable] = index
+        variables[variable] = choiceIndices.indices.contains(index) ? choiceIndices[index] : index
         choices = nil
         wait = .none
         run()
@@ -255,7 +257,24 @@ public final class LucaPlayer {
             wait = .click
         case .select(let values, let japanese, let english, _, _):
             let raw = english.isEmpty ? japanese : english
-            choices = raw.components(separatedBy: "$d").map { Self.parse($0, strings: strings).text }
+            // `[(expr),]Text` shows that option only while expr is nonzero (options already
+            // tried drop out of a choice the script loops back to).
+            var shown: [String] = []
+            var indices: [Int] = []
+            for (index, option) in raw.components(separatedBy: "$d").enumerated() {
+                var text = option
+                if text.hasPrefix("[("), let close = text.range(of: ")") {
+                    let condition = String(text[text.index(text.startIndex, offsetBy: 2)..<close.lowerBound])
+                    if let end = text.range(of: "]", range: close.upperBound..<text.endIndex) {
+                        text = String(text[end.upperBound...])
+                    }
+                    if evaluate(condition) == 0 { continue }
+                }
+                shown.append(Self.parse(text, strings: strings).text)
+                indices.append(index)
+            }
+            choices = shown
+            choiceIndices = indices
             wait = .choice(variable: Int(values[0]))
         case .varstrSet(_, let variable, let japanese, let english, _):
             strings[Int(variable)] = english.isEmpty ? japanese : english
@@ -542,6 +561,7 @@ public final class LucaPlayer {
         public var message: LucaMessage?
         public var choices: [String]?
         public var choiceVariable: Int?
+        public var choiceIndices: [Int]?
         public var musicID: Int?
         public var backlog: [LucaMessage]
     }
@@ -555,7 +575,7 @@ public final class LucaPlayer {
                      callStack: callStack.map { .init(script: $0.script.name, index: $0.index) },
                      variables: variables, strings: strings, layers: layers, presented: presented,
                      windowVisible: windowVisible, message: message, choices: choices,
-                     choiceVariable: choiceVariable, musicID: musicID, backlog: Array(backlog.suffix(100)))
+                     choiceVariable: choiceVariable, choiceIndices: choiceIndices, musicID: musicID, backlog: Array(backlog.suffix(100)))
     }
 
     /// Resumes a saved game: the stage as it was, the music again, and the same line waiting
@@ -570,6 +590,7 @@ public final class LucaPlayer {
         windowVisible = state.windowVisible
         message = state.message
         choices = state.choices
+        choiceIndices = state.choiceIndices ?? Array(0..<(state.choices?.count ?? 0))
         backlog = state.backlog
         tweens.removeAll()
         transition = nil
