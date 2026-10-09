@@ -81,6 +81,8 @@ public final class LucaPlayer {
     public private(set) var choices: [String]?
     /// A heading for the choices, when they aren't the script's own (the map).
     public private(set) var choicePrompt: String?
+    /// A line under each choice, when the choices are places on the map.
+    public private(set) var choiceDetails: [String?] = []
     /// For each choice shown, its number in the script (options can be hidden).
     private var choiceIndices: [Int] = []
     /// A DRAW in progress: the host crossfades from the stage as it was to the stage now.
@@ -295,6 +297,7 @@ public final class LucaPlayer {
             }
             choices = shown
             choiceIndices = indices
+            choiceDetails = []
             choicePrompt = nil
             wait = .choice(variable: Int(values[0]))
         case .varstrSet(_, let variable, let japanese, let english, _):
@@ -500,7 +503,7 @@ public final class LucaPlayer {
     /// choice, named after the scene it leads to.
     private func offerMap(variable: Int) {
         let instructions = frame.script.instructions
-        var options: [(value: Int, label: String)] = []
+        var options: [(value: Int, place: Place)] = []
         var i = frame.index
         let pattern = try? Regex<(Substring, Substring, Substring)>(#"^\(*#(\d+)\)*==(\d+)\)*$"#)
         while i < instructions.count, i < frame.index + 600 {
@@ -511,22 +514,32 @@ public final class LucaPlayer {
                Int(match.output.1) == variable, let value = Int(match.output.2),
                !options.contains(where: { $0.value == value }),
                let end = frame.script.index(atPosition: target),
-               let label = destination(in: frame.script, from: i + 1, to: end),
-               !Self.minigames.contains(label) {
-                options.append((value, label))
+               let place = destination(in: frame.script, from: i + 1, to: end),
+               !Self.minigames.contains(place.label),
+               !options.contains(where: { $0.place.script == place.script && $0.place.position == place.position }) {
+                options.append((value, place))
             }
             i += 1
         }
         guard !options.isEmpty else { return }
-        choices = options.map(\.label)
+        choices = options.map(\.place.label)
+        choiceDetails = options.map(\.place.detail)
         choiceIndices = options.map(\.value)
         choicePrompt = "Where will you go?"
         wait = .choice(variable: variable)
     }
 
+    private struct Place {
+        var script: String
+        var position: Int
+        var label: String
+        /// The scene's first line of narration: usually where Hairi goes ("I arrive at the shrine.").
+        var detail: String?
+    }
+
     /// The first scene called between two instructions (following a call back into the same
-    /// script one step), as a place or heroine name.
-    private func destination(in script: LucaScript, from start: Int, to end: Int, depth: Int = 0) -> String? {
+    /// script one step).
+    private func destination(in script: LucaScript, from start: Int, to end: Int, depth: Int = 0) -> Place? {
         var i = start
         while i < min(end, script.instructions.count) {
             var call: (name: String, target: Int?)?
@@ -536,10 +549,29 @@ public final class LucaPlayer {
             default: break
             }
             if let call {
-                if call.name != script.name { return Self.placeName(call.name) }
+                if call.name != script.name {
+                    return Place(script: call.name, position: call.target ?? 0, label: Self.placeName(call.name),
+                                 detail: firstLine(of: call.name, at: call.target ?? 0))
+                }
                 if depth == 0, let target = call.target, let index = script.index(atPosition: target) {
                     return destination(in: script, from: index, to: index + 60, depth: 1)
                 }
+            }
+            i += 1
+        }
+        return nil
+    }
+
+    /// The first narrated line (no speaker) a scene shows.
+    private func firstLine(of name: String, at position: Int) -> String? {
+        guard let script = try? game.script(named: name) else { return nil }
+        var i = script.index(atPosition: position) ?? 0
+        let end = min(script.instructions.count, i + 400)
+        while i < end {
+            if case .message(_, let japanese, let english, _, _) = LucaOp.decode(script.instructions[i], table: table) {
+                let raw = english.isEmpty ? japanese : english
+                let parsed = Self.parse(raw, strings: strings)
+                if parsed.speaker == nil, !parsed.text.isEmpty { return parsed.text }
             }
             i += 1
         }
@@ -678,6 +710,7 @@ public final class LucaPlayer {
         public var choiceVariable: Int?
         public var choiceIndices: [Int]?
         public var choicePrompt: String?
+        public var choiceDetails: [String?]?
         public var musicID: Int?
         public var backlog: [LucaMessage]
     }
@@ -691,7 +724,7 @@ public final class LucaPlayer {
                      callStack: callStack.map { .init(script: $0.script.name, index: $0.index) },
                      variables: variables, strings: strings, layers: layers, presented: presented,
                      windowVisible: windowVisible, message: message, choices: choices,
-                     choiceVariable: choiceVariable, choiceIndices: choiceIndices, choicePrompt: choicePrompt, musicID: musicID, backlog: Array(backlog.suffix(100)))
+                     choiceVariable: choiceVariable, choiceIndices: choiceIndices, choicePrompt: choicePrompt, choiceDetails: choiceDetails, musicID: musicID, backlog: Array(backlog.suffix(100)))
     }
 
     /// Resumes a saved game: the stage as it was, the music again, and the same line waiting
@@ -708,6 +741,7 @@ public final class LucaPlayer {
         choices = state.choices
         choiceIndices = state.choiceIndices ?? Array(0..<(state.choices?.count ?? 0))
         choicePrompt = state.choicePrompt
+        choiceDetails = state.choiceDetails ?? []
         backlog = state.backlog
         tweens.removeAll()
         transition = nil

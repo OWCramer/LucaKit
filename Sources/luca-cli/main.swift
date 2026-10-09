@@ -126,12 +126,13 @@ case "play":
         let player = rest.count > 3 ? try LucaPlayer(game: game, script: rest[3]) : try LucaPlayer(game: game)
         var shown = 0
         var frames = 0
+        var mapVisits = 0
         if let resume = ProcessInfo.processInfo.environment["LUCA_RESUME"],
            let data = FileManager.default.contents(atPath: resume) {
             try player.restore(JSONDecoder().decode(LucaPlayer.State.self, from: data))
             print("resumed from \(resume) at \(player.currentScript)")
         }
-        while shown < clicks, !player.finished, frames < 200_000 {
+        while shown < clicks, !player.finished, frames < 2_000_000 {
             player.tick()
             frames += 1
             for sound in player.sounds { print("  sound \(sound)") }
@@ -157,8 +158,17 @@ case "play":
                     print("MAP \(choices): stopping")
                     break
                 }
-                print("CHOICE \(choices) → 0")
-                player.choose(0)
+                // LUCA_MAP_PICK=Shiroha follows a heroine at every map.
+                var pick = 0
+                if player.choicePrompt != nil, let wanted = ProcessInfo.processInfo.environment["LUCA_MAP_PICK"] {
+                    // Of the places leading to her, take each in turn (some only say she isn't there).
+                    let matches = choices.indices.filter { choices[$0] == wanted }
+                    if !matches.isEmpty { pick = matches[mapVisits % matches.count] }
+                    mapVisits += 1
+                    print("  places \(zip(choices, player.choiceDetails.map { $0 ?? "" }).map { "\($0.0): \($0.1)" })")
+                }
+                print("CHOICE \(choices) → \(pick)")
+                player.choose(pick)
             }
         }
         if let failure = player.failure { print("STOPPED: \(failure)") }
