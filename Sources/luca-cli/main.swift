@@ -281,7 +281,10 @@ func renderStage(_ player: LucaPlayer, to url: URL) {
         guard let image = player.game.image(layer.imageID), let cg = cgImage(image) else { continue }
         _ = tag
         let w = Double(image.width) * layer.scale, h = Double(image.height) * layer.scale
-        let (x, y) = layer.origin(width: w, height: h, offsetX: Double(image.offsetX), offsetY: Double(image.offsetY))
+        var (x, y) = layer.origin(width: w, height: h, offsetX: Double(image.offsetX), offsetY: Double(image.offsetY))
+        if layer.centred, let anchor = player.game.overlayAnchor(layer.imageID) {
+            x = layer.x - Double(anchor.width) * layer.scale / 2 + Double(image.offsetX - anchor.x) * layer.scale
+        }
         ctx.saveGState()
         ctx.setAlpha(layer.alpha)
         if layer.blend == 1 { ctx.setBlendMode(.plusLighter) }

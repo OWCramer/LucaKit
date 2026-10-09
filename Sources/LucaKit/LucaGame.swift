@@ -75,6 +75,14 @@ public final class LucaGame: @unchecked Sendable {
 
     private var frames: [Int: (x: Int, y: Int, width: Int, height: Int)] = [:]
 
+    /// For a character face overlay (`F_BS3_RU02010111`), the sprite it belongs to
+    /// (`BS3_RU02010111`): the overlay is placed in that sprite's frame.
+    public func overlayAnchor(_ id: Int) -> (x: Int, y: Int, width: Int, height: Int)? {
+        guard let (archive, entry) = imageEntry(id), entry.name.uppercased().hasPrefix("F_"),
+              let base = archive.entry(named: String(entry.name.dropFirst(2))) else { return nil }
+        return frame(base.id)
+    }
+
     /// A picture's size and placement, from its header only.
     public func frame(_ id: Int) -> (x: Int, y: Int, width: Int, height: Int)? {
         cacheLock.lock()
@@ -168,7 +176,11 @@ public final class LucaGame: @unchecked Sendable {
         // Character expressions are patches over their pose's first picture: BS2_AO01030116 is
         // drawn on BS2_AO01030101. (Event CG patches go over the layer's last whole picture:
         // LucaLayer.baseImageID.)
-        if entry.name.uppercased().hasPrefix("BS"),
+        if entry.name.uppercased().hasPrefix("F_BS"), let baseEntry = archive.entry(named: String(entry.name.dropFirst(2))),
+           let baseImage = self.image(baseEntry.id) {
+            // A close-up's face layer (F_BS3_RU02010111) over its sprite (BS3_RU02010111).
+            image = baseImage.composited(with: image)
+        } else if entry.name.uppercased().hasPrefix("BS"),
            let baseEntry = patchBase(of: entry, in: archive, area: image.width * image.height),
            let baseImage = self.image(baseEntry.id) {
             image = baseImage.composited(with: image)

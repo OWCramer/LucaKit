@@ -21,8 +21,8 @@ public struct LucaLayer: Sendable, Equatable, Codable {
     /// The whole picture a smaller one (an expression patch, an inset) is drawn over: the
     /// last whole picture loaded onto this layer, as the PC engine does.
     public var baseImageID: Int?
-    /// Characters are placed by their centre.
-    public var centred: Bool { number & 0xFF == 1 }
+    /// Characters (1) and close-up character overlays (3) are placed by their centre.
+    public var centred: Bool { kind == 1 || kind == 3 }
 
     /// Top-left corner on the 1920×1080 screen for a picture of this size (scaled).
     public func origin(width: Double, height: Double, offsetX: Double, offsetY: Double) -> (x: Double, y: Double) {
