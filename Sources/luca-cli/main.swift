@@ -10,6 +10,9 @@ import UniformTypeIdentifiers
 ///   luca-cli dump <SCRIPT.PAK> <script>     a script, one instruction per line
 ///   luca-cli ops <SCRIPT.PAK>               opcode usage across every script
 ///   luca-cli png <pak> <entry> <out.png>    a CZ image as PNG
+///   luca-cli play <base folder> <out dir> [clicks] [script]
+///                                           runs the game headless, clicking through,
+///                                           and writes a frame per line of text
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write(Data((message + "\n").utf8))
     exit(1)
@@ -67,9 +70,15 @@ case "dump":
     guard let entry = archive.entry(named: rest[1]) ?? Int(rest[1]).flatMap(archive.entry(id:)) else { fail("no script \(rest[1])") }
     do {
         let s = try LucaScript(name: entry.name, data: archive.data(for: entry))
+        let hex = rest.contains("--hex")
         for i in s.instructions {
             let fixed = i.fixed.isEmpty ? "" : " \(i.fixed)"
-            print("\(i.position)\t\(describe(LucaOp.decode(i)))\(fixed)")
+            let op = LucaOp.decode(i)
+            var line = "\(i.position)\t\(describe(op))\(fixed)"
+            if hex, case .raw = op {
+                line += "\t| " + i.params.map { String(format: "%02x", $0) }.joined(separator: " ")
+            }
+            print(line)
         }
     } catch { fail("\(error)") }
 
@@ -107,6 +116,92 @@ case "png":
         CGImageDestinationFinalize(dest)
     } catch { fail("\(error)") }
 
+case "play":
+    guard rest.count >= 2 else { fail("play <base folder> <out dir> [clicks] [script]") }
+    let out = URL(fileURLWithPath: rest[1])
+    try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+    let clicks = rest.count > 2 ? Int(rest[2]) ?? 20 : 20
+    do {
+        let game = try LucaGame(root: URL(fileURLWithPath: rest[0]))
+        let player = rest.count > 3 ? try LucaPlayer(game: game, script: rest[3]) : try LucaPlayer(game: game)
+        var shown = 0
+        var frames = 0
+        if let resume = ProcessInfo.processInfo.environment["LUCA_RESUME"],
+           let data = FileManager.default.contents(atPath: resume) {
+            try player.restore(JSONDecoder().decode(LucaPlayer.State.self, from: data))
+            print("resumed from \(resume) at \(player.currentScript)")
+        }
+        while shown < clicks, !player.finished, frames < 200_000 {
+            player.tick()
+            frames += 1
+            for sound in player.sounds { print("  sound \(sound)") }
+            player.sounds.removeAll()
+            if player.isWaitingForClick, player.transition == nil {
+                if let m = player.message {
+                    print("[\(player.currentScript)@\(player.currentPosition) f\(frames)] #\(shown) \(m.speaker.map { "\($0): " } ?? "")\(m.text)")
+                    if ProcessInfo.processInfo.environment["LUCA_LAYERS"] != nil {
+                        for l in player.sortedLayers {
+                            print("    layer \(String(l.number, radix: 16)) \(player.game.imageName(l.imageID) ?? "?")(\(l.imageID)) at \(l.x),\(l.y) a\(l.alpha) s\(l.scale) b\(l.blend)")
+                        }
+                    }
+                }
+                renderStage(player, to: out.appendingPathComponent(String(format: "%03d.png", shown)))
+                shown += 1
+                player.click()
+            } else if let choices = player.choices {
+                print("CHOICE \(choices) → 0")
+                player.choose(0)
+            }
+        }
+        if let failure = player.failure { print("STOPPED: \(failure)") }
+        let state = try JSONEncoder().encode(player.saveState())
+        try state.write(to: out.appendingPathComponent("state.json"))
+        print("state \(state.count) bytes")
+        print("done after \(frames) frames at \(player.currentScript)@\(player.currentPosition)")
+    } catch { fail("\(error)") }
+
 default:
     fail("unknown command \(command)")
+}
+
+/// Composites the stage into a 1920×1080 PNG (no transitions, the text as a caption bar).
+func renderStage(_ player: LucaPlayer, to url: URL) {
+    let width = 1920, height = 1080
+    guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                              space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+    ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+    ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    // CoreGraphics is bottom-up; flip so y grows downward like the game.
+    ctx.translateBy(x: 0, y: CGFloat(height))
+    ctx.scaleBy(x: 1, y: -1)
+    for layer in player.sortedLayers {
+        guard let image = player.game.image(layer.imageID), let cg = cgImage(image) else { continue }
+        let w = Double(image.width) * layer.scale, h = Double(image.height) * layer.scale
+        var x = layer.x + Double(image.offsetX), y = layer.y + Double(image.offsetY)
+        if layer.centred { x = layer.x - w / 2 }
+        ctx.saveGState()
+        ctx.setAlpha(layer.alpha)
+        if layer.blend == 1 { ctx.setBlendMode(.plusLighter) }
+        ctx.translateBy(x: x, y: y + h)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.restoreGState()
+    }
+    if player.windowVisible {
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.55))
+        ctx.fill(CGRect(x: 0, y: 820, width: 1920, height: 260))
+    }
+    guard let image = ctx.makeImage(),
+          let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else { return }
+    CGImageDestinationAddImage(dest, image, nil)
+    CGImageDestinationFinalize(dest)
+}
+
+func cgImage(_ image: CZImage) -> CGImage? {
+    guard let provider = CGDataProvider(data: Data(image.rgba) as CFData) else { return nil }
+    return CGImage(width: image.width, height: image.height, bitsPerComponent: 8, bitsPerPixel: 32,
+                   bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                   bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+                   provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
 }
