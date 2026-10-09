@@ -35,6 +35,48 @@ public struct CZImage: Sendable {
         }
     }
 
+    public init(width: Int, height: Int, offsetX: Int, offsetY: Int, canvasWidth: Int, canvasHeight: Int, rgba: [UInt8]) {
+        self.width = width
+        self.height = height
+        self.offsetX = offsetX
+        self.offsetY = offsetY
+        self.canvasWidth = canvasWidth
+        self.canvasHeight = canvasHeight
+        self.rgba = rgba
+    }
+
+    /// `part` drawn over this image ("over", straight alpha), both placed by their offsets.
+    public func composited(with part: CZImage) -> CZImage {
+        var out = rgba
+        let dx = part.offsetX - offsetX, dy = part.offsetY - offsetY
+        for py in 0..<part.height {
+            let y = py + dy
+            guard y >= 0, y < height else { continue }
+            for px in 0..<part.width {
+                let x = px + dx
+                guard x >= 0, x < width else { continue }
+                let s = (py * part.width + px) * 4
+                let a = Int(part.rgba[s + 3])
+                if a == 0 { continue }
+                let d = (y * width + x) * 4
+                if a == 255 {
+                    out[d] = part.rgba[s]; out[d + 1] = part.rgba[s + 1]; out[d + 2] = part.rgba[s + 2]; out[d + 3] = 255
+                    continue
+                }
+                let da = Int(out[d + 3])
+                let oa = a + da * (255 - a) / 255
+                guard oa > 0 else { continue }
+                for c in 0..<3 {
+                    let sc = Int(part.rgba[s + c]), dc = Int(out[d + c])
+                    out[d + c] = UInt8(min(255, (sc * a + dc * da * (255 - a) / 255) / oa))
+                }
+                out[d + 3] = UInt8(oa)
+            }
+        }
+        return CZImage(width: width, height: height, offsetX: offsetX, offsetY: offsetY,
+                       canvasWidth: canvasWidth, canvasHeight: canvasHeight, rgba: out)
+    }
+
     public static func isCZ(_ data: Data) -> Bool {
         data.count >= 15 && data[data.startIndex] == 0x43 && data[data.startIndex + 1] == 0x5A
     }

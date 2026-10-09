@@ -68,6 +68,23 @@ public final class LucaGame: @unchecked Sendable {
 
     public func imageName(_ id: Int) -> String? { imageEntry(id)?.1.name }
 
+    private func decode(_ archive: PAKArchive, _ entry: PAKArchive.Entry) -> CZImage? {
+        let data = patched(entry.name) ?? (try? archive.data(for: entry))
+        guard let data, CZImage.isCZ(data) else { return nil }
+        return try? CZImage(data: data)
+    }
+
+    /// For a character expression (`BS1_KY03010116`), its pose's base picture
+    /// (`BS1_KY03010101`); nil for bases and other pictures.
+    static func characterBase(_ name: String) -> String? {
+        let upper = name.uppercased()
+        guard upper.hasPrefix("BS"), let underscore = upper.firstIndex(of: "_"),
+              upper.distance(from: underscore, to: upper.endIndex) >= 9, !upper.hasSuffix("01"),
+              upper.suffix(2).allSatisfy(\.isNumber)
+        else { return nil }
+        return String(name.dropLast(2)) + "01"
+    }
+
     /// Decoded image `id`, cached (the most recent 48).
     public func image(_ id: Int) -> CZImage? {
         cacheLock.lock()
@@ -79,8 +96,13 @@ public final class LucaGame: @unchecked Sendable {
         }
         cacheLock.unlock()
         guard let (archive, entry) = imageEntry(id) else { return nil }
-        let data = patched(entry.name) ?? (try? archive.data(for: entry))
-        guard let data, CZImage.isCZ(data), let image = try? CZImage(data: data) else { return nil }
+        guard var image = decode(archive, entry) else { return nil }
+        // Character expressions are face patches over the pose's first picture: BS2_AO01030116
+        // is drawn on BS2_AO01030101.
+        if let base = Self.characterBase(entry.name), let baseEntry = archive.entry(named: base),
+           let baseImage = decode(archive, baseEntry) {
+            image = baseImage.composited(with: image)
+        }
         cacheLock.lock()
         imageCache[id] = image
         imageCacheOrder.append(id)

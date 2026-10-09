@@ -125,7 +125,9 @@ public final class LucaPlayer {
         frame.index < frame.script.instructions.count ? frame.script.instructions[frame.index].position : -1
     }
 
-    public var sortedLayers: [LucaLayer] { presented.values.sorted { $0.order < $1.order } }
+    /// What to draw, in order. The face shown in the text window (kind 7) is left out until
+    /// Shiori knows how the game frames it.
+    public var sortedLayers: [LucaLayer] { presented.values.filter { $0.kind != 7 }.sorted { $0.order < $1.order } }
 
     public var isWaitingForClick: Bool {
         if case .click = wait { return true }
