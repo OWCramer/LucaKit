@@ -84,6 +84,13 @@ public final class LucaGame: @unchecked Sendable {
     }
 
     /// A picture's size and placement, from its header only.
+    /// Whether picture `id` is a patch the game composes onto a base by name.
+    public func hasNamedBase(_ id: Int) -> Bool {
+        guard let (archive, entry) = imageEntry(id), let f = frame(id) else { return false }
+        if entry.name.uppercased().hasPrefix("F_BS") { return true }
+        return patchBase(of: entry, in: archive, area: f.width * f.height) != nil
+    }
+
     public func frame(_ id: Int) -> (x: Int, y: Int, width: Int, height: Int)? {
         cacheLock.lock()
         if let cached = frames[id] { cacheLock.unlock(); return cached }
@@ -127,7 +134,10 @@ public final class LucaGame: @unchecked Sendable {
     /// itself). `cg_sz01_0303` → `cg_sz01_0201` (`cg_sz01_0301` is a patch too);
     /// `BS2_AO01030116` → `BS2_AO01030101`.
     public func patchBase(of entry: PAKArchive.Entry, in archive: PAKArchive, area: Int) -> PAKArchive.Entry? {
-        let name = entry.name
+        // Large versions (CG_TM01_0102L) patch large bases (CG_TM01_0101L).
+        let large = entry.name.hasSuffix("L") || entry.name.hasSuffix("l")
+        let name = large ? String(entry.name.dropLast()) : entry.name
+        let suffix = large ? String(entry.name.last!) : ""
         guard name.count > 4, name.suffix(2).allSatisfy(\.isNumber) else { return nil }
         var candidates = [String(name.dropLast(2)) + "01"]
         // Event CGs number groups of four digits (_GGNN): earlier groups' 01s too.
@@ -136,9 +146,11 @@ public final class LucaGame: @unchecked Sendable {
             let stem = String(name.dropLast(4))
             candidates += stride(from: group - 1, through: 1, by: -1).map { stem + String(format: "%02d01", $0) }
         }
+        candidates = candidates.map { $0 + suffix }
         let character = name.uppercased().hasPrefix("BS")
         for candidate in candidates {
-            guard let base = archive.entry(named: candidate), base.id != entry.id,
+            guard let base = archive.entry(named: candidate) ?? (large ? archive.entry(named: String(candidate.dropLast()) + (suffix == "L" ? "l" : "L")) : nil),
+                  base.id != entry.id,
                   let frame = (try? archive.data(for: base)).flatMap(CZImage.frame(of:)),
                   frame.width * frame.height > area
             else { continue }
@@ -180,8 +192,7 @@ public final class LucaGame: @unchecked Sendable {
            let baseImage = self.image(baseEntry.id) {
             // A close-up's face layer (F_BS3_RU02010111) over its sprite (BS3_RU02010111).
             image = baseImage.composited(with: image)
-        } else if entry.name.uppercased().hasPrefix("BS"),
-           let baseEntry = patchBase(of: entry, in: archive, area: image.width * image.height),
+        } else if let baseEntry = patchBase(of: entry, in: archive, area: image.width * image.height),
            let baseImage = self.image(baseEntry.id) {
             image = baseImage.composited(with: image)
         }

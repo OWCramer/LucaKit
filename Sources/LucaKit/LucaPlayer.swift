@@ -652,7 +652,8 @@ public final class LucaPlayer {
         layer.imageID = id
         guard layer.kind == 0 || layer.kind == 2, let frame = game.frame(id) else { layer.baseImageID = nil; return }
         let whole = frame.x == 0 && frame.y == 0 && frame.width >= 1920 && frame.height >= 1080
-        if whole || previousBase == id {
+        // Patches with a base by name (cg_sz01_0203 on cg_sz01_0201) are composed by LucaGame.
+        if whole || previousBase == id || game.hasNamedBase(id) {
             layer.baseImageID = nil
         } else if let base = game.frame(previousBase), base.x == 0, base.y == 0, base.width >= 1920, base.height >= 1080 {
             layer.baseImageID = previousBase
