@@ -73,6 +73,21 @@ public final class LucaGame: @unchecked Sendable {
 
     public func imageName(_ id: Int) -> String? { imageEntry(id)?.1.name }
 
+    private var frames: [Int: (x: Int, y: Int, width: Int, height: Int)] = [:]
+
+    /// A picture's size and placement, from its header only.
+    public func frame(_ id: Int) -> (x: Int, y: Int, width: Int, height: Int)? {
+        cacheLock.lock()
+        if let cached = frames[id] { cacheLock.unlock(); return cached }
+        cacheLock.unlock()
+        guard let (archive, entry) = imageEntry(id),
+              let frame = (try? archive.data(for: entry)).flatMap(CZImage.frame(of:)) else { return nil }
+        cacheLock.lock()
+        frames[id] = frame
+        cacheLock.unlock()
+        return frame
+    }
+
     /// Where a character's face is in picture `id` (as `image(id)` returns it): the
     /// rectangle its expression patch covers. A pose's base picture borrows the rectangle of
     /// its first expression.
@@ -99,10 +114,29 @@ public final class LucaGame: @unchecked Sendable {
 
     /// For a character expression (`BS1_KY03010116`), its pose's base picture
     /// (`BS1_KY03010101`); nil for bases and other pictures.
-    /// For a name ending in a two-digit number other than 01, the same name ending in 01.
-    static func patchBase(_ name: String) -> String? {
-        guard name.count > 4, name.suffix(2).allSatisfy(\.isNumber), !name.hasSuffix("01") else { return nil }
-        return String(name.dropLast(2)) + "01"
+    /// The picture a patch is drawn over: the nearest `…01` of its set that is a whole picture
+    /// (bigger than the patch; for event CGs, at the screen's origin rather than a patch
+    /// itself). `cg_sz01_0303` → `cg_sz01_0201` (`cg_sz01_0301` is a patch too);
+    /// `BS2_AO01030116` → `BS2_AO01030101`.
+    public func patchBase(of entry: PAKArchive.Entry, in archive: PAKArchive, area: Int) -> PAKArchive.Entry? {
+        let name = entry.name
+        guard name.count > 4, name.suffix(2).allSatisfy(\.isNumber) else { return nil }
+        var candidates = [String(name.dropLast(2)) + "01"]
+        // Event CGs number groups of four digits (_GGNN): earlier groups' 01s too.
+        let digits = name.reversed().prefix { $0.isNumber }
+        if digits.count == 4, let group = Int(String(digits.reversed()).prefix(2)) {
+            let stem = String(name.dropLast(4))
+            candidates += stride(from: group - 1, through: 1, by: -1).map { stem + String(format: "%02d01", $0) }
+        }
+        let character = name.uppercased().hasPrefix("BS")
+        for candidate in candidates {
+            guard let base = archive.entry(named: candidate), base.id != entry.id,
+                  let frame = (try? archive.data(for: base)).flatMap(CZImage.frame(of:)),
+                  frame.width * frame.height > area
+            else { continue }
+            if character || (frame.x == 0 && frame.y == 0 && frame.width >= 1900) { return base }
+        }
+        return nil
     }
 
     static func characterBase(_ name: String) -> String? {
@@ -131,13 +165,11 @@ public final class LucaGame: @unchecked Sendable {
             cacheLock.unlock()
             return nil
         }
-        // Expressions are patches over their set's first picture: BS2_AO01030116 is drawn on
-        // BS2_AO01030101, and event CGs the same way (cg_sr09_0102 on CG_SR09_0101). A patch is
-        // smaller than its base.
-        if let base = Self.patchBase(entry.name), let baseEntry = archive.entry(named: base),
-           baseEntry.id != entry.id,
-           let baseFrame = (try? archive.data(for: baseEntry)).flatMap(CZImage.frame(of:)),
-           image.width * image.height < baseFrame.width * baseFrame.height,
+        // Character expressions are patches over their pose's first picture: BS2_AO01030116 is
+        // drawn on BS2_AO01030101. (Event CG patches go over the layer's last whole picture:
+        // LucaLayer.baseImageID.)
+        if entry.name.uppercased().hasPrefix("BS"),
+           let baseEntry = patchBase(of: entry, in: archive, area: image.width * image.height),
            let baseImage = self.image(baseEntry.id) {
             image = baseImage.composited(with: image)
         }

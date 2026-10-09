@@ -199,6 +199,34 @@ case "play":
         print("done after \(frames) frames at \(player.currentScript)@\(player.currentPosition)")
     } catch { fail("\(error)") }
 
+case "pic":
+    // luca-cli pic <base folder> <image id> <out.png>: as the stage gets it (patches composited).
+    guard rest.count >= 3, let id = Int(rest[1]) else { fail("pic <base folder> <id> <out.png>") }
+    do {
+        let game = try LucaGame(root: URL(fileURLWithPath: rest[0]))
+        guard let image = game.image(id), let cg = cgImage(image) else { fail("no picture \(id)") }
+        print("\(game.imageName(id) ?? "?") \(image.width)×\(image.height) at \(image.offsetX),\(image.offsetY)")
+        let dest = CGImageDestinationCreateWithURL(URL(fileURLWithPath: rest[2]) as CFURL, UTType.png.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(dest, cg, nil)
+        CGImageDestinationFinalize(dest)
+    } catch { fail("\(error)") }
+
+case "orphans":
+    // luca-cli orphans <base folder>: event CGs smaller than the screen that no base covers.
+    guard let root = rest.first else { fail("orphans <base folder>") }
+    do {
+        let game = try LucaGame(root: URL(fileURLWithPath: root))
+        for archive in game.images where archive.url.lastPathComponent.uppercased() == "EVENTCG.PAK" {
+            for e in archive.entries {
+                guard let frame = (try? archive.data(for: e)).flatMap(CZImage.frame(of:)),
+                      frame.width < 1900 || frame.height < 1060 else { continue }
+                if game.patchBase(of: e, in: archive, area: frame.width * frame.height) == nil {
+                    print("\(e.id) \(e.name) \(frame.width)x\(frame.height) at \(frame.x),\(frame.y)")
+                }
+            }
+        }
+    } catch { fail("\(error)") }
+
 case "webm":
     // luca-cli webm <file.webm | pak entry: pak name> [out.ogg]
     guard let path = rest.first else { fail("webm <file> | webm <pak> <entry>") }
@@ -237,8 +265,21 @@ func renderStage(_ player: LucaPlayer, to url: URL) {
     // CoreGraphics is bottom-up; flip so y grows downward like the game.
     ctx.translateBy(x: 0, y: CGFloat(height))
     ctx.scaleBy(x: 1, y: -1)
+    var drawn: [(LucaLayer, Int)] = []
     for layer in player.sortedLayers {
+        if let base = layer.baseImageID {
+            var whole = layer; whole.imageID = base; whole.baseImageID = nil
+            drawn.append((whole, base))
+            // The patch then draws at its own offset, as a plain picture would.
+            var patch = layer; patch.baseImageID = nil
+            drawn.append((patch, -1))
+            continue
+        }
+        drawn.append((layer, 0))
+    }
+    for (layer, tag) in drawn {
         guard let image = player.game.image(layer.imageID), let cg = cgImage(image) else { continue }
+        _ = tag
         let w = Double(image.width) * layer.scale, h = Double(image.height) * layer.scale
         let (x, y) = layer.origin(width: w, height: h, offsetX: Double(image.offsetX), offsetY: Double(image.offsetY))
         ctx.saveGState()

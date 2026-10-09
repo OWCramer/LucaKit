@@ -18,6 +18,9 @@ public struct LucaLayer: Sendable, Equatable, Codable {
     public var blend: Int = 0
     /// EVSCROLL: the position is a camera offset, the picture's centre from the screen's.
     public var scroll = false
+    /// The whole picture a smaller one (an expression patch, an inset) is drawn over: the
+    /// last whole picture loaded onto this layer, as the PC engine does.
+    public var baseImageID: Int?
     /// Characters are placed by their centre.
     public var centred: Bool { number & 0xFF == 1 }
 
@@ -404,7 +407,7 @@ public final class LucaPlayer {
             let id = Int(r.u16())
             if number & 0xFF == 7 { faceLoadedForLine = true }
             var layer = layers[number] ?? LucaLayer(number: number, imageID: id)
-            layer.imageID = id
+            setPicture(&layer, id)
             if instruction.params.count >= 14 {
                 _ = r.u16() // mode
                 layer.x = Double(Float(bitPattern: r.u32()))
@@ -420,7 +423,7 @@ public final class LucaPlayer {
             let number = Int(r.u16())
             let id = Int(r.u16())
             if var layer = layers[number] {
-                layer.imageID = id
+                setPicture(&layer, id)
                 layers[number] = layer
                 if number & 0xFF == 7 { faceLoadedForLine = true }
             }
@@ -641,6 +644,22 @@ public final class LucaPlayer {
     }
 
     // MARK: Layers and animation
+
+    /// A whole picture replaces the layer's; a smaller one (event CG expressions, insets) is
+    /// drawn over the layer's last whole picture. Characters compose by name (LucaGame).
+    private func setPicture(_ layer: inout LucaLayer, _ id: Int) {
+        let previousBase = layer.baseImageID ?? layer.imageID
+        layer.imageID = id
+        guard layer.kind == 0 || layer.kind == 2, let frame = game.frame(id) else { layer.baseImageID = nil; return }
+        let whole = frame.x == 0 && frame.y == 0 && frame.width >= 1920 && frame.height >= 1080
+        if whole || previousBase == id {
+            layer.baseImageID = nil
+        } else if let base = game.frame(previousBase), base.x == 0, base.y == 0, base.width >= 1920, base.height >= 1080 {
+            layer.baseImageID = previousBase
+        } else {
+            layer.baseImageID = nil
+        }
+    }
 
     private func forEachLayer(_ number: Int, _ body: (Int) -> Void) {
         if number >> 8 == 0xFF {
