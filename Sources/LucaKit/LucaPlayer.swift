@@ -51,6 +51,13 @@ public struct LucaMessage: Sendable, Equatable, Codable {
     public var voice: Int
 }
 
+/// Colour effects over the whole stage.
+public struct LucaStageEffects: Sendable, Equatable, Codable {
+    /// 0…1.
+    public var sepia: Float = 0
+    public init() {}
+}
+
 /// A card the host shows over the story for a moment.
 public enum LucaNotice: Sendable, Equatable {
     /// The day, as "July 26".
@@ -99,6 +106,8 @@ public final class LucaPlayer {
     public private(set) var drawGeneration = 0
     /// Sounds since the host last drained them.
     public var sounds: [LucaSound] = []
+    /// Whole-stage colour effects (SEPIA, TONE, ADDCOLOR) for the host's renderer.
+    public private(set) var effects = LucaStageEffects()
     /// Things the PC executable shows over the story (the day's date, items acquired), for
     /// the host to show briefly; drained by the host.
     public var notices: [LucaNotice] = []
@@ -442,6 +451,9 @@ public final class LucaPlayer {
                     forEachLayer(number) { animate($0, scale: scale, frames: frames, easing: 0x20) }
                 }
             }
+        case "SEPIA":
+            // SEPIA target, mode, 255 on / 0 off.
+            if instruction.params.count >= 3 { effects.sepia = Float(instruction.params[2]) / 255 }
         case "EVSCROLL":
             let number = Int(r.u16())
             forEachLayer(number) { layers[$0]?.scroll = true }
@@ -747,6 +759,7 @@ public final class LucaPlayer {
         public var choicePrompt: String?
         public var choiceDetails: [String?]?
         public var musicID: Int?
+        public var effects: LucaStageEffects?
         public var backlog: [LucaMessage]
     }
 
@@ -759,7 +772,7 @@ public final class LucaPlayer {
                      callStack: callStack.map { .init(script: $0.script.name, index: $0.index) },
                      variables: variables, strings: strings, layers: layers, presented: presented,
                      windowVisible: windowVisible, message: message, choices: choices,
-                     choiceVariable: choiceVariable, choiceIndices: choiceIndices, choicePrompt: choicePrompt, choiceDetails: choiceDetails, musicID: musicID, backlog: Array(backlog.suffix(100)))
+                     choiceVariable: choiceVariable, choiceIndices: choiceIndices, choicePrompt: choicePrompt, choiceDetails: choiceDetails, musicID: musicID, effects: effects, backlog: Array(backlog.suffix(100)))
     }
 
     /// Resumes a saved game: the stage as it was, the music again, and the same line waiting
@@ -784,6 +797,7 @@ public final class LucaPlayer {
         finished = false
         failure = nil
         musicID = state.musicID
+        effects = state.effects ?? LucaStageEffects()
         sounds = [.stopVoice, .stopEffect(channel: -1, fadeFrames: 0)]
         sounds.append(state.musicID.map { .music(id: $0, fadeFrames: 30) } ?? .stopMusic(fadeFrames: 0))
         if let variable = state.choiceVariable, state.choices != nil {
