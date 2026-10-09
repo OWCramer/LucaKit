@@ -62,6 +62,81 @@ case "raw":
     guard let entry = archive.entry(named: rest[1]) else { fail("no entry") }
     do { try archive.data(for: entry).write(to: URL(fileURLWithPath: rest[2])) } catch { fail("\(error)") }
 
+case "glyphs":
+    // luca-cli glyphs <base folder> <face> <size> <chars>: each glyph's record and its ink.
+    guard rest.count >= 4, let size = Int(rest[2]) else { fail("glyphs <base> <face> <size> <chars>") }
+    do {
+        let game = try LucaGame(root: URL(fileURLWithPath: rest[0]))
+        guard let font = game.font(face: rest[1], size: size)?.main else { fail("no font") }
+        print("size \(font.size) cell \(font.cell) atlas \(font.atlas.width)×\(font.atlas.height)")
+        for c in rest[3].unicodeScalars {
+            guard let g = font.glyph(c) else { print(c, "none"); continue }
+            var minX = 99, maxX = -1, minY = 99, maxY = -1
+            for y in 0..<font.cell { for x in 0..<font.cell
+                where font.atlas.rgba[((g.cellY + y) * font.atlas.width + g.cellX + x) * 4 + 3] > 40 {
+                minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y) } }
+            print(c, "x", g.x, "advance", g.advance, "extra", g.extra, "ink x", minX, maxX, "y", minY, maxY)
+        }
+    } catch { fail("\(error)") }
+
+case "text":
+    // luca-cli text <base folder> <out.png> <size> <text>: the text in every face, one per row.
+    guard rest.count >= 4, let size = Int(rest[2]) else { fail("text <base> <out.png> <size> <text>") }
+    do {
+        let game = try LucaGame(root: URL(fileURLWithPath: rest[0]))
+        let faces = LucaGame.fontFaces.compactMap { face in game.font(face: face, size: size).map { (face, $0.main) } }
+        let width = 1100, rowHeight = size * 2
+        var pixels = [UInt8](repeating: 0, count: width * rowHeight * faces.count * 4)
+        for i in stride(from: 0, to: pixels.count, by: 4) { pixels[i] = 40; pixels[i + 1] = 110; pixels[i + 2] = 120; pixels[i + 3] = 255 }
+        for (row, (_, font)) in faces.enumerated() {
+            var penX = 20
+            for c in rest[3].unicodeScalars {
+                guard let g = font.glyph(c) else { penX += size / 2; continue }
+                for y in 0..<font.cell { for x in 0..<font.cell {
+                    let a = Int(font.atlas.rgba[((g.cellY + y) * font.atlas.width + g.cellX + x) * 4 + 3])
+                    let px = penX + x, py = row * rowHeight + size / 2 + y
+                    guard a > 0, px < width else { continue }
+                    let o = (py * width + px) * 4
+                    for k in 0..<3 { pixels[o + k] = UInt8((Int(pixels[o + k]) * (255 - a) + 255 * a) / 255) }
+                } }
+                penX += g.advance
+            }
+        }
+        let provider = CGDataProvider(data: Data(pixels) as CFData)!
+        let cg = CGImage(width: width, height: rowHeight * faces.count, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+                         space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+                         provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
+        let dest = CGImageDestinationCreateWithURL(URL(fileURLWithPath: rest[1]) as CFURL, UTType.png.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(dest, cg, nil)
+        CGImageDestinationFinalize(dest)
+        print(faces.map(\.0).joined(separator: " "))
+    } catch { fail("\(error)") }
+
+case "typeset":
+    // luca-cli typeset <base folder> <out.png> <face> <size> <width> <text>: as the window draws it.
+    guard rest.count >= 6, let size = Int(rest[3]), let width = Int(rest[4]) else { fail("typeset <base> <out> <face> <size> <width> <text>") }
+    do {
+        let game = try LucaGame(root: URL(fileURLWithPath: rest[0]))
+        guard let font = game.font(face: rest[2], size: size) else { fail("no font") }
+        let fonts = [font.main] + (font.patch.map { [$0] } ?? []) + (game.font(face: rest[2], size: 40).map { [$0.main] } ?? [])
+        let set = LucaTypeset(rest[5].replacingOccurrences(of: "\\n", with: "\n"), fonts: fonts, width: width, lineHeight: size * 3 / 2)
+        var pixels = set.render(fill: (255, 255, 255), outline: (20, 50, 60), outlineWidth: 2)
+        // Over the window's teal.
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            let a = 255 - Int(pixels[i + 3])
+            pixels[i] = UInt8(Int(pixels[i]) + 70 * a / 255); pixels[i + 1] = UInt8(Int(pixels[i + 1]) + 170 * a / 255)
+            pixels[i + 2] = UInt8(Int(pixels[i + 2]) + 180 * a / 255); pixels[i + 3] = 255
+        }
+        let provider = CGDataProvider(data: Data(pixels) as CFData)!
+        let cg = CGImage(width: set.width, height: set.height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: set.width * 4,
+                         space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                         provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
+        let dest = CGImageDestinationCreateWithURL(URL(fileURLWithPath: rest[1]) as CFURL, UTType.png.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(dest, cg, nil)
+        CGImageDestinationFinalize(dest)
+        print("\(set.lineCount) lines, \(set.width)×\(set.height)")
+    } catch { fail("\(error)") }
+
 case "scripts":
     guard let path = rest.first else { fail("scripts <SCRIPT.PAK>") }
     let archive = pak(path)
