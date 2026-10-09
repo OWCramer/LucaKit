@@ -73,6 +73,24 @@ public final class LucaGame: @unchecked Sendable {
 
     public func imageName(_ id: Int) -> String? { imageEntry(id)?.1.name }
 
+    /// Where a character's face is in picture `id` (as `image(id)` returns it): the
+    /// rectangle its expression patch covers. A pose's base picture borrows the rectangle of
+    /// its first expression.
+    public func faceRect(_ id: Int) -> (x: Int, y: Int, width: Int, height: Int)? {
+        guard let (archive, entry) = imageEntry(id), entry.name.uppercased().hasPrefix("BS") else { return nil }
+        var patchEntry: PAKArchive.Entry? = Self.characterBase(entry.name) != nil ? entry : nil
+        let baseName = Self.characterBase(entry.name) ?? entry.name
+        if patchEntry == nil {
+            let stem = String(entry.name.dropLast(2))
+            patchEntry = (2...30).lazy.compactMap { archive.entry(named: stem + String(format: "%02d", $0)) }.first
+        }
+        guard let patchEntry, let baseEntry = archive.entry(named: baseName),
+              let patch = (try? archive.data(for: patchEntry)).flatMap(CZImage.frame(of:)),
+              let base = (try? archive.data(for: baseEntry)).flatMap(CZImage.frame(of:))
+        else { return nil }
+        return (patch.x - base.x, patch.y - base.y, patch.width, patch.height)
+    }
+
     private func decode(_ archive: PAKArchive, _ entry: PAKArchive.Entry) -> CZImage? {
         let data = patched(entry.name) ?? (try? archive.data(for: entry))
         guard let data, CZImage.isCZ(data) else { return nil }

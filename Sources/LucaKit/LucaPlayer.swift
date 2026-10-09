@@ -127,9 +127,13 @@ public final class LucaPlayer {
         frame.index < frame.script.instructions.count ? frame.script.instructions[frame.index].position : -1
     }
 
-    /// What to draw, in order. The face shown in the text window (kind 7) is left out until
-    /// Shiori knows how the game frames it.
+    /// What to draw on the stage, in order. The face in the text window (kind 7) is
+    /// `windowFace`.
     public var sortedLayers: [LucaLayer] { presented.values.filter { $0.kind != 7 }.sorted { $0.order < $1.order } }
+
+    /// The speaker's face shown at the left of the text window: the whole sprite, its centre
+    /// at `x` and its top at `y` relative to the window, clipped by the window.
+    public var windowFace: LucaLayer? { presented.values.first { $0.kind == 7 } }
 
     public var isWaitingForClick: Bool {
         if case .click = wait { return true }

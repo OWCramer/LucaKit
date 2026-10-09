@@ -195,7 +195,18 @@ func renderStage(_ player: LucaPlayer, to url: URL) {
     }
     if player.windowVisible {
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.55))
-        ctx.fill(CGRect(x: 0, y: 820, width: 1920, height: 260))
+        ctx.fill(CGRect(x: 0, y: 735, width: 1920, height: 345))
+        if let face = player.windowFace, let image = player.game.image(face.imageID), let cg = cgImage(image) {
+            let w = Double(image.width), h = Double(image.height)
+            ctx.saveGState()
+            ctx.clip(to: CGRect(x: 0, y: 735, width: 420, height: 345))
+            let rect = player.game.faceRect(face.imageID) ?? (Int(w / 2) - 90, Int(h * 0.12), 180, 150)
+            let fx = 215 - (Double(rect.x) + Double(rect.width) / 2), fy = 215 - (Double(rect.y) + Double(rect.height) / 2)
+            ctx.translateBy(x: fx, y: 735 + fy + h)
+            ctx.scaleBy(x: 1, y: -1)
+            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+            ctx.restoreGState()
+        }
     }
     guard let image = ctx.makeImage(),
           let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else { return }

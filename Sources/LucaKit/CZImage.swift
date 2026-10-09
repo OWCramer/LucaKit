@@ -77,6 +77,17 @@ public struct CZImage: Sendable {
                        canvasWidth: canvasWidth, canvasHeight: canvasHeight, rgba: out)
     }
 
+    /// Size and placement from the header alone, without decoding pixels.
+    public static func frame(of data: Data) -> (x: Int, y: Int, width: Int, height: Int)? {
+        let d = [UInt8](data.prefix(32))
+        guard d.count >= 24, d[0] == 0x43, d[1] == 0x5A else { return nil }
+        let w = Int(UInt16(d[8]) | UInt16(d[9]) << 8), h = Int(UInt16(d[10]) | UInt16(d[11]) << 8)
+        guard d[2] == 0x30 || d[2] == 0x33 || d[2] == 0x34 else { return (0, 0, w, h) }
+        let x = Int(Int16(bitPattern: UInt16(d[16]) | UInt16(d[17]) << 8))
+        let y = Int(Int16(bitPattern: UInt16(d[18]) | UInt16(d[19]) << 8))
+        return (x, y, w, h)
+    }
+
     public static func isCZ(_ data: Data) -> Bool {
         data.count >= 15 && data[data.startIndex] == 0x43 && data[data.startIndex + 1] == 0x5A
     }
