@@ -124,6 +124,14 @@ public final class LucaPlayer {
     public private(set) var messageKey: UInt64?
     /// Options: a tap that reads on stops the line's voice (else it plays until the next one).
     public var stopsVoiceOnClick = true
+    /// The state at each recent line, for rewinding and resuming from the Message Log. The
+    /// backlog is left out of these; `serial` numbers the line among all lines shown.
+    public private(set) var history: [(serial: Int, state: State)] = []
+    public var historyLimit = 200
+    /// Lines shown so far (the newest line's serial).
+    public private(set) var lineSerial = 0
+    /// The serial of `backlog[i]`.
+    public func serial(ofBacklogLine index: Int) -> Int { lineSerial - backlog.count + index + 1 }
     public private(set) var finished = false
     /// Why the player stopped, when it stopped on an error.
     public private(set) var failure: String?
@@ -334,6 +342,9 @@ public final class LucaPlayer {
             if backlog.count > 500 { backlog.removeFirst() }
             if voice > 0 { sounds.append(.voice(id: Int(voice))) }
             wait = .click
+            lineSerial += 1
+            history.append((lineSerial, saveState(withBacklog: false)))
+            if history.count > historyLimit { history.removeFirst(history.count - historyLimit) }
         case .select(let values, let japanese, let english, _, _):
             let raw = english.isEmpty ? japanese : english
             // `[(expr),]Text` shows that option only while expr is nonzero (options already
@@ -798,20 +809,54 @@ public final class LucaPlayer {
         public var backlog: [LucaMessage]
     }
 
-    public func saveState() -> State {
+    public func saveState() -> State { saveState(withBacklog: true) }
+
+    private func saveState(withBacklog: Bool) -> State {
         var choiceVariable: Int?
         if case .choice(let variable) = wait {
             choiceVariable = variable
+        }
+        // Layers still moving are recorded where they're headed (a restore doesn't resume
+        // animations): a long camera pan would otherwise come back half done.
+        let now = layers
+        for tween in tweens { apply(tween, progress: 1) }
+        let layers = self.layers
+        self.layers = now
+        var presented = self.presented
+        for (number, shown) in presented {
+            if let layer = layers[number], layer.imageID == shown.imageID { presented[number] = layer }
         }
         return State(position: .init(script: frame.script.name, index: frame.index),
                      callStack: callStack.map { .init(script: $0.script.name, index: $0.index) },
                      variables: variables, strings: strings, layers: layers, presented: presented,
                      windowVisible: windowVisible, message: message, choices: choices,
-                     choiceVariable: choiceVariable, choiceIndices: choiceIndices, choicePrompt: choicePrompt, choiceDetails: choiceDetails, musicID: musicID, effects: effects, backlog: Array(backlog.suffix(500)))
+                     choiceVariable: choiceVariable, choiceIndices: choiceIndices, choicePrompt: choicePrompt, choiceDetails: choiceDetails, musicID: musicID, effects: effects,
+                     backlog: withBacklog ? Array(backlog.suffix(500)) : [])
     }
 
     /// Resumes a saved game: the stage as it was, the music again, and the same line waiting
     /// for a click (or the same choice).
+    /// Whether line `serial` can be returned to.
+    public func canReturn(to serial: Int) -> Bool { history.contains { $0.serial == serial } }
+
+    /// Goes back to line `serial` as it was first shown: the stage, variables and music then,
+    /// the log cut back to it, and its voice again.
+    public func returnTo(line serial: Int) throws {
+        guard let entry = history.firstIndex(where: { $0.serial == serial }) else { return }
+        let kept = Array(backlog.prefix(max(0, backlog.count - (lineSerial - serial))))
+        let keptHistory = Array(history.prefix(entry + 1))
+        try restore(history[entry].state)
+        backlog = kept
+        history = keptHistory
+        lineSerial = serial
+        if let voice = message?.voice, voice > 0 { sounds.append(.voice(id: voice)) }
+    }
+
+    /// One line back (nil when there's no earlier line to return to).
+    public var previousLine: Int? {
+        history.count >= 2 ? history[history.count - 2].serial : nil
+    }
+
     public func restore(_ state: State) throws {
         frame = Frame(script: try game.script(named: state.position.script), index: state.position.index)
         callStack = try state.callStack.map { Frame(script: try game.script(named: $0.script), index: $0.index) }
@@ -826,6 +871,8 @@ public final class LucaPlayer {
         choicePrompt = state.choicePrompt
         choiceDetails = state.choiceDetails ?? []
         backlog = state.backlog
+        lineSerial = backlog.count
+        history = []
         tweens.removeAll()
         transition = nil
         drawGeneration += 1
@@ -841,6 +888,11 @@ public final class LucaPlayer {
             wait = .click
         } else {
             wait = .none
+        }
+        // The line on screen is where the next rewind starts from.
+        if message != nil, frame.index > 0, frame.index <= frame.script.instructions.count {
+            messageKey = Self.key(frame.script.name, frame.script.instructions[frame.index - 1].position)
+            history = [(lineSerial, saveState(withBacklog: false))]
         }
     }
 
