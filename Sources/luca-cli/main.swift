@@ -111,8 +111,18 @@ case "png":
                          bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                          bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
                          provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
+        var output = cg
+        // LUCA_GREY=1: over mid grey, to see white-on-transparent art.
+        if ProcessInfo.processInfo.environment["LUCA_GREY"] != nil,
+           let ctx = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
+                               space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+            ctx.setFillColor(CGColor(red: 0.25, green: 0.25, blue: 0.3, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            output = ctx.makeImage() ?? cg
+        }
         let dest = CGImageDestinationCreateWithURL(URL(fileURLWithPath: rest[2]) as CFURL, UTType.png.identifier as CFString, 1, nil)!
-        CGImageDestinationAddImage(dest, cg, nil)
+        CGImageDestinationAddImage(dest, output, nil)
         CGImageDestinationFinalize(dest)
     } catch { fail("\(error)") }
 
