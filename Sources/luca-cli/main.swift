@@ -178,8 +178,7 @@ func renderStage(_ player: LucaPlayer, to url: URL) {
     for layer in player.sortedLayers {
         guard let image = player.game.image(layer.imageID), let cg = cgImage(image) else { continue }
         let w = Double(image.width) * layer.scale, h = Double(image.height) * layer.scale
-        var x = layer.x + Double(image.offsetX), y = layer.y + Double(image.offsetY)
-        if layer.centred { x = layer.x - w / 2 }
+        let (x, y) = layer.origin(width: w, height: h, offsetX: Double(image.offsetX), offsetY: Double(image.offsetY))
         ctx.saveGState()
         ctx.setAlpha(layer.alpha)
         if layer.blend == 1 { ctx.setBlendMode(.plusLighter) }

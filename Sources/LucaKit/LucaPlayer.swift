@@ -16,8 +16,17 @@ public struct LucaLayer: Sendable, Equatable, Codable {
     public var scale: Double = 1
     /// 0 normal, 1 additive, 2 screen-like (BMODE).
     public var blend: Int = 0
+    /// EVSCROLL: the position is a camera offset, the picture's centre from the screen's.
+    public var scroll = false
     /// Characters are placed by their centre.
     public var centred: Bool { number & 0xFF == 1 }
+
+    /// Top-left corner on the 1920×1080 screen for a picture of this size (scaled).
+    public func origin(width: Double, height: Double, offsetX: Double, offsetY: Double) -> (x: Double, y: Double) {
+        if scroll { return (960 - width / 2 + x, 540 - height / 2 + y) }
+        if centred { return (x - width / 2, y + offsetY * scale) }
+        return (x + offsetX * scale, y + offsetY * scale)
+    }
 
     public var kind: Int { number & 0xFF }
     public var index: Int { number >> 8 }
@@ -316,6 +325,7 @@ public final class LucaPlayer {
                 layer.y = Double(Float(bitPattern: r.u32()))
                 layer.alpha = 1
                 layer.scale = 1
+                layer.scroll = false
                 // A new picture with a position starts afresh: earlier moves stop.
                 tweens.removeAll { $0.layer == number }
             }
@@ -343,6 +353,20 @@ public final class LucaPlayer {
             let alpha = Double(r.u8()) / 255
             let frames = r.remaining >= 2 ? Int(r.u16()) : 0
             forEachLayer(number) { animate($0, alpha: alpha, frames: frames, easing: 0) }
+        case "SCALE":
+            let number = Int(r.u16())
+            if instruction.params.count < 12 {
+                forEachLayer(number) { animate($0, scale: 1, frames: 0, easing: 0) }
+            } else {
+                let frames = Int(r.u16())
+                let scale = Double(Float(bitPattern: r.u32()))
+                if scale.isFinite, scale > 0.01, scale < 20 {
+                    forEachLayer(number) { animate($0, scale: scale, frames: frames, easing: 0x20) }
+                }
+            }
+        case "EVSCROLL":
+            let number = Int(r.u16())
+            forEachLayer(number) { layers[$0]?.scroll = true }
         case "BMODE":
             let number = Int(r.u16())
             let mode = Int(r.u8())
@@ -428,7 +452,12 @@ public final class LucaPlayer {
         guard let layer = layers[number] else { return }
         let tween = Tween(layer: number, from: (layer.x, layer.y, layer.alpha, layer.scale),
                           to: (x, y, alpha, scale), frames: frames, easing: easing)
-        tweens.removeAll { $0.layer == number && (x != nil || y != nil) == ($0.to.x != nil || $0.to.y != nil) && (alpha != nil) == ($0.to.alpha != nil) }
+        // A new move replaces the running move, a fade the fade, a zoom the zoom.
+        func kind(_ to: (x: Double?, y: Double?, alpha: Double?, scale: Double?)) -> Int {
+            to.x != nil || to.y != nil ? 0 : (to.alpha != nil ? 1 : 2)
+        }
+        let newKind = kind(tween.to)
+        tweens.removeAll { $0.layer == number && kind($0.to) == newKind }
         if frames <= 0 {
             apply(tween, progress: 1)
         } else {
