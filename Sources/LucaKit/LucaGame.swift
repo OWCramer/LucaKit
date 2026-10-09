@@ -23,6 +23,8 @@ public final class LucaGame: @unchecked Sendable {
     private var undecodable = Set<Int>()
     /// Decoded pictures kept, by size: a 3840×2160 background alone is 33 MB.
     public var imageCacheLimit = 200 << 20
+    /// PARAM.PAK: data tables (the voiced characters, CG gallery, sound adjustments).
+    public let params: PAKArchive?
     private var scriptCache: [String: LucaScript] = [:]
 
     /// `root` holds `files/` (a Steam folder's `base/`); `patch` an optional overlay folder.
@@ -44,7 +46,24 @@ public final class LucaGame: @unchecked Sendable {
         music = open("music/MUSIC.PAK")
         soundEffects = open("se/SE.PAK")
         systemSounds = open("SYSSE.PAK")
+        params = open("PARAM.PAK")
         self.patch = patch.map { $0.appendingPathComponent("files", isDirectory: true) }
+    }
+
+    /// The characters with their own voice volume (OPTIONS › Voice), from `_voice_param`'s
+    /// header: a count, names per character (3: Japanese, English, Chinese), then the names.
+    public func voiceCharacters() -> [(japanese: String, english: String)] {
+        guard let data = try? params?.data(named: "_voice_param"), data.count > 8 else { return [] }
+        let count = Int(data.le32(0)), perCharacter = Int(data.le32(4))
+        guard count < 100, perCharacter >= 2, perCharacter < 8 else { return [] }
+        var position = data.startIndex + 8
+        var names: [String] = []
+        for _ in 0..<(count * perCharacter) {
+            guard let end = data[position...].firstIndex(of: 0) else { return [] }
+            names.append(String(decoding: data[position..<end], as: UTF8.self))
+            position = end + 1
+        }
+        return (0..<count).map { (names[$0 * perCharacter], names[$0 * perCharacter + 1]) }
     }
 
     // MARK: Scripts

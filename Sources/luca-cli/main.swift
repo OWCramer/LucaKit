@@ -55,6 +55,13 @@ case "list":
         print("\(e.id)\t\(e.name)\t\(e.length)\t\(head)")
     }
 
+case "raw":
+    // luca-cli raw <pak> <entry name> <out>: an entry's bytes as stored.
+    guard rest.count >= 3 else { fail("raw <pak> <entry> <out>") }
+    let archive = pak(rest[0])
+    guard let entry = archive.entry(named: rest[1]) else { fail("no entry") }
+    do { try archive.data(for: entry).write(to: URL(fileURLWithPath: rest[2])) } catch { fail("\(error)") }
+
 case "scripts":
     guard let path = rest.first else { fail("scripts <SCRIPT.PAK>") }
     let archive = pak(path)
