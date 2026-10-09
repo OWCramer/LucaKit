@@ -151,6 +151,10 @@ case "play":
                 shown += 1
                 player.click()
             } else if let choices = player.choices {
+                if player.choicePrompt != nil, ProcessInfo.processInfo.environment["LUCA_STOP_AT_MAP"] != nil {
+                    print("MAP \(choices): stopping")
+                    break
+                }
                 print("CHOICE \(choices) → 0")
                 player.choose(0)
             }

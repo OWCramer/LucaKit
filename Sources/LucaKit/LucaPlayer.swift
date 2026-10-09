@@ -71,6 +71,8 @@ public final class LucaPlayer {
     public private(set) var message: LucaMessage?
     public private(set) var windowVisible = false
     public private(set) var choices: [String]?
+    /// A heading for the choices, when they aren't the script's own (the map).
+    public private(set) var choicePrompt: String?
     /// For each choice shown, its number in the script (options can be hidden).
     private var choiceIndices: [Int] = []
     /// A DRAW in progress: the host crossfades from the stage as it was to the stage now.
@@ -166,6 +168,7 @@ public final class LucaPlayer {
         guard case .choice(let variable) = wait else { return }
         variables[variable] = choiceIndices.indices.contains(index) ? choiceIndices[index] : index
         choices = nil
+        choicePrompt = nil
         wait = .none
         run()
     }
@@ -277,6 +280,7 @@ public final class LucaPlayer {
             }
             choices = shown
             choiceIndices = indices
+            choicePrompt = nil
             wait = .choice(variable: Int(values[0]))
         case .varstrSet(_, let variable, let japanese, let english, _):
             strings[Int(variable)] = english.isEmpty ? japanese : english
@@ -483,6 +487,7 @@ public final class LucaPlayer {
         guard !options.isEmpty else { return }
         choices = options.map(\.label)
         choiceIndices = options.map(\.value)
+        choicePrompt = "Where will you go?"
         wait = .choice(variable: variable)
     }
 
@@ -639,6 +644,7 @@ public final class LucaPlayer {
         public var choices: [String]?
         public var choiceVariable: Int?
         public var choiceIndices: [Int]?
+        public var choicePrompt: String?
         public var musicID: Int?
         public var backlog: [LucaMessage]
     }
@@ -652,7 +658,7 @@ public final class LucaPlayer {
                      callStack: callStack.map { .init(script: $0.script.name, index: $0.index) },
                      variables: variables, strings: strings, layers: layers, presented: presented,
                      windowVisible: windowVisible, message: message, choices: choices,
-                     choiceVariable: choiceVariable, choiceIndices: choiceIndices, musicID: musicID, backlog: Array(backlog.suffix(100)))
+                     choiceVariable: choiceVariable, choiceIndices: choiceIndices, choicePrompt: choicePrompt, musicID: musicID, backlog: Array(backlog.suffix(100)))
     }
 
     /// Resumes a saved game: the stage as it was, the music again, and the same line waiting
@@ -668,6 +674,7 @@ public final class LucaPlayer {
         message = state.message
         choices = state.choices
         choiceIndices = state.choiceIndices ?? Array(0..<(state.choices?.count ?? 0))
+        choicePrompt = state.choicePrompt
         backlog = state.backlog
         tweens.removeAll()
         transition = nil
