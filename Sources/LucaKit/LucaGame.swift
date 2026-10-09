@@ -18,6 +18,11 @@ public final class LucaGame: @unchecked Sendable {
     private let cacheLock = NSLock()
     private var imageCache: [Int: CZImage] = [:]
     private var imageCacheOrder: [Int] = []
+    private var imageCacheBytes = 0
+    /// Ids that aren't CZ pictures (MVT movies, missing entries): not read again.
+    private var undecodable = Set<Int>()
+    /// Decoded pictures kept, by size: a 3840×2160 background alone is 33 MB.
+    public var imageCacheLimit = 200 << 20
     private var scriptCache: [String: LucaScript] = [:]
 
     /// `root` holds `files/` (a Steam folder's `base/`); `patch` an optional overlay folder.
@@ -85,7 +90,7 @@ public final class LucaGame: @unchecked Sendable {
         return String(name.dropLast(2)) + "01"
     }
 
-    /// Decoded image `id`, cached (the most recent 48).
+    /// Decoded image `id`, cached (the most recent, up to `imageCacheLimit` bytes).
     public func image(_ id: Int) -> CZImage? {
         cacheLock.lock()
         if let cached = imageCache[id] {
@@ -94,20 +99,30 @@ public final class LucaGame: @unchecked Sendable {
             cacheLock.unlock()
             return cached
         }
+        if undecodable.contains(id) { cacheLock.unlock(); return nil }
         cacheLock.unlock()
-        guard let (archive, entry) = imageEntry(id) else { return nil }
-        guard var image = decode(archive, entry) else { return nil }
+        guard let (archive, entry) = imageEntry(id), var image = decode(archive, entry) else {
+            cacheLock.lock()
+            undecodable.insert(id)
+            cacheLock.unlock()
+            return nil
+        }
         // Character expressions are face patches over the pose's first picture: BS2_AO01030116
         // is drawn on BS2_AO01030101.
         if let base = Self.characterBase(entry.name), let baseEntry = archive.entry(named: base),
-           let baseImage = decode(archive, baseEntry) {
+           let baseImage = self.image(baseEntry.id) {
             image = baseImage.composited(with: image)
         }
         cacheLock.lock()
-        imageCache[id] = image
-        imageCacheOrder.append(id)
-        while imageCacheOrder.count > 48 {
-            imageCache.removeValue(forKey: imageCacheOrder.removeFirst())
+        if imageCache[id] == nil {
+            imageCache[id] = image
+            imageCacheOrder.append(id)
+            imageCacheBytes += image.rgba.count
+        }
+        while imageCacheBytes > imageCacheLimit, imageCacheOrder.count > 1 {
+            if let old = imageCache.removeValue(forKey: imageCacheOrder.removeFirst()) {
+                imageCacheBytes -= old.rgba.count
+            }
         }
         cacheLock.unlock()
         return image
