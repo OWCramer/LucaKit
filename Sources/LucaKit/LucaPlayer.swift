@@ -43,6 +43,14 @@ public struct LucaMessage: Sendable, Equatable, Codable {
     public var voice: Int
 }
 
+/// A card the host shows over the story for a moment.
+public enum LucaNotice: Sendable, Equatable {
+    /// The day, as "July 26".
+    case date(String)
+    /// An item or title acquired.
+    case acquired(String)
+}
+
 /// A sound for the host to play.
 public enum LucaSound: Sendable, Equatable {
     case music(id: Int, fadeFrames: Int)
@@ -81,6 +89,9 @@ public final class LucaPlayer {
     public private(set) var drawGeneration = 0
     /// Sounds since the host last drained them.
     public var sounds: [LucaSound] = []
+    /// Things the PC executable shows over the story (the day's date, items acquired), for
+    /// the host to show briefly; drained by the host.
+    public var notices: [LucaNotice] = []
     /// Text shown so far, for the backlog.
     public private(set) var backlog: [LucaMessage] = []
     public private(set) var finished = false
@@ -448,11 +459,29 @@ public final class LucaPlayer {
                 sounds.append(.effect(channel: channel, id: id, loop: loopFlag != 0, volume: 1, fadeFrames: 0))
             }
         case "TASK":
-            // TASK 53 is the day's map: the PC game draws it in its executable and writes the
-            // place picked into a variable. Shiori offers the places the script goes on to test.
-            if r.u16() == 53 {
+            switch r.u16() {
+            case 53:
+                // The day's map: the PC game draws it in its executable and writes the place
+                // picked into a variable. Shiori offers the places the script goes on to test.
                 let variable = Int(r.u16())
                 offerMap(variable: variable)
+            case 3:
+                // The day card: "0726".
+                let day = r.lstrUTF8()
+                if day.count == 4, let month = Int(day.prefix(2)), let date = Int(day.suffix(2)),
+                   (1...12).contains(month) {
+                    let name = DateFormatter().monthSymbols[month - 1]
+                    notices.append(.date("\(name) \(date)"))
+                }
+            case 8:
+                // "Acquired …": Japanese, then English.
+                _ = r.lstrUTF16()
+                _ = r.u16()
+                _ = r.u16()
+                let english = r.lstrUTF16()
+                if !english.isEmpty { notices.append(.acquired(Self.expand(english, strings: strings))) }
+            default:
+                break
             }
         case "SE_STOP":
             sounds.append(.stopEffect(channel: Int(r.u8()), fadeFrames: 0))

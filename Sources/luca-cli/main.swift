@@ -135,6 +135,8 @@ case "play":
             player.tick()
             frames += 1
             for sound in player.sounds { print("  sound \(sound)") }
+            for notice in player.notices { print("NOTICE \(notice)") }
+            player.notices.removeAll()
             player.sounds.removeAll()
             if player.isWaitingForClick, player.transition == nil {
                 if let m = player.message {
