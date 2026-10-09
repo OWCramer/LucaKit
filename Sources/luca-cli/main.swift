@@ -128,13 +128,13 @@ case "typeset":
             pixels[i + 2] = UInt8(Int(pixels[i + 2]) + 180 * a / 255); pixels[i + 3] = 255
         }
         let provider = CGDataProvider(data: Data(pixels) as CFData)!
-        let cg = CGImage(width: set.width, height: set.height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: set.width * 4,
+        let cg = CGImage(width: set.usedWidth, height: set.height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: set.usedWidth * 4,
                          space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
                          provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
         let dest = CGImageDestinationCreateWithURL(URL(fileURLWithPath: rest[1]) as CFURL, UTType.png.identifier as CFString, 1, nil)!
         CGImageDestinationAddImage(dest, cg, nil)
         CGImageDestinationFinalize(dest)
-        print("\(set.lineCount) lines, \(set.width)×\(set.height)")
+        print("\(set.lineCount) lines, \(set.usedWidth)×\(set.height)")
     } catch { fail("\(error)") }
 
 case "scripts":

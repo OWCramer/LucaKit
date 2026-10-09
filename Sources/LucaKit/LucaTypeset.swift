@@ -20,6 +20,8 @@ public struct LucaTypeset: Sendable {
     private let fonts: [LucaFont]
 
     public var height: Int { max(1, lineCount) * lineHeight }
+    /// How wide the text actually runs (the widest line), plus room for an outline.
+    public var usedWidth: Int { min(width, (placed.map { $0.x + $0.advance }.max() ?? 0) + 4) }
 
     /// `fonts` are tried in order for each character (the size's font, its patch font, then a
     /// larger size with more characters).
@@ -71,10 +73,10 @@ public struct LucaTypeset: Sendable {
         lineCount = characters.isEmpty ? 0 : line + 1
     }
 
-    /// The text drawn: premultiplied RGBA, `width` × `height`, glyphs in `fill` over an outline
+    /// The text drawn: premultiplied RGBA, `usedWidth` × `height`, glyphs in `fill` over an outline
     /// `outlineWidth` pixels wide in `outline` (straight 0–255 RGB).
     public func render(fill: (UInt8, UInt8, UInt8), outline: (UInt8, UInt8, UInt8), outlineWidth: Int) -> [UInt8] {
-        let w = width, h = height
+        let w = usedWidth, h = height
         // Coverage of the glyphs, then of the outline (the coverage spread by outlineWidth).
         var ink = [UInt8](repeating: 0, count: w * h)
         for p in placed {
