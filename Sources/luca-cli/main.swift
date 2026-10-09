@@ -189,6 +189,29 @@ case "play":
         print("done after \(frames) frames at \(player.currentScript)@\(player.currentPosition)")
     } catch { fail("\(error)") }
 
+case "webm":
+    // luca-cli webm <file.webm | pak entry: pak name> [out.ogg]
+    guard let path = rest.first else { fail("webm <file> | webm <pak> <entry>") }
+    do {
+        let webm: WebM
+        if path.uppercased().hasSuffix(".PAK"), rest.count >= 2 {
+            let archive = pak(path)
+            guard let entry = archive.entry(named: rest[1]) else { fail("no entry") }
+            let (header, file) = try WebM.mvt(archive.data(for: entry))
+            print("MVT \(header)")
+            webm = file
+        } else {
+            webm = try WebM(data: Data(contentsOf: URL(fileURLWithPath: path), options: .alwaysMapped))
+        }
+        for t in webm.tracks { print("track \(t.number) \(t.codec) \(t.width)x\(t.height) \(t.sampleRate)Hz \(t.channels)ch private \(t.codecPrivate.count)") }
+        print("\(webm.frames.count) frames, duration \(webm.duration) s")
+        for f in webm.frames.prefix(6) { print("  t\(f.track) \(f.time) key=\(f.keyframe) \(f.data.count) bytes") }
+        if let out = rest.last, out.hasSuffix(".ogg"), let ogg = webm.vorbisAsOgg() {
+            try ogg.write(to: URL(fileURLWithPath: out))
+            print("wrote \(out) (\(ogg.count) bytes)")
+        }
+    } catch { fail("\(error)") }
+
 default:
     fail("unknown command \(command)")
 }
