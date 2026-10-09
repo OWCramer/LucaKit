@@ -426,7 +426,8 @@ public final class LucaPlayer {
                 sounds.append(.stopMusic(fadeFrames: 0))
             }
         case "SE":
-            let channel = Int(r.u8())
+            // Channel 255 is every channel.
+            let channel = { $0 == 255 ? -1 : $0 }(Int(r.u8()))
             guard instruction.params.count >= 5 else {
                 sounds.append(.stopEffect(channel: channel, fadeFrames: 0))
                 break
@@ -438,6 +439,13 @@ public final class LucaPlayer {
                 let loopFlag = r.remaining >= 1 ? r.u8() : 0
                 sounds.append(.effect(channel: channel, id: id, loop: loopFlag != 0, volume: 1, fadeFrames: 0))
             }
+        case "TASK":
+            // TASK 53 is the day's map: the PC game draws it in its executable and writes the
+            // place picked into a variable. Shiori offers the places the script goes on to test.
+            if r.u16() == 53 {
+                let variable = Int(r.u16())
+                offerMap(variable: variable)
+            }
         case "SE_STOP":
             sounds.append(.stopEffect(channel: Int(r.u8()), fadeFrames: 0))
         case "VOICE_STOP":
@@ -446,6 +454,73 @@ public final class LucaPlayer {
         default:
             break // not drawn or not needed yet (TASK, SETCGFLAG, SCALE, EVSCROLL, …)
         }
+    }
+
+    // MARK: The map
+
+    /// After the map TASK the script tests the variable place by place (`IFN ((#6049)==4)`),
+    /// each test guarding a call into that place's scene. Every place with a scene becomes a
+    /// choice, named after the scene it leads to.
+    private func offerMap(variable: Int) {
+        let instructions = frame.script.instructions
+        var options: [(value: Int, label: String)] = []
+        var i = frame.index
+        let pattern = try? Regex<(Substring, Substring, Substring)>(#"^\(*#(\d+)\)*==(\d+)\)*$"#)
+        while i < instructions.count, i < frame.index + 600 {
+            let op = LucaOp.decode(instructions[i], table: table)
+            if case .raw(let name, let values, _) = op, name == "TASK", values.first == 53 { break }
+            if case .branch(false, let expression, let target) = op,
+               let pattern, let match = expression.wholeMatch(of: pattern),
+               Int(match.output.1) == variable, let value = Int(match.output.2),
+               !options.contains(where: { $0.value == value }),
+               let end = frame.script.index(atPosition: target),
+               let label = destination(in: frame.script, from: i + 1, to: end),
+               !Self.minigames.contains(label) {
+                options.append((value, label))
+            }
+            i += 1
+        }
+        guard !options.isEmpty else { return }
+        choices = options.map(\.label)
+        choiceIndices = options.map(\.value)
+        wait = .choice(variable: variable)
+    }
+
+    /// The first scene called between two instructions (following a call back into the same
+    /// script one step), as a place or heroine name.
+    private func destination(in script: LucaScript, from start: Int, to end: Int, depth: Int = 0) -> String? {
+        var i = start
+        while i < min(end, script.instructions.count) {
+            var call: (name: String, target: Int?)?
+            switch LucaOp.decode(script.instructions[i], table: table) {
+            case .farcall(_, let name, let target): call = (name, target)
+            case .jump(let name, let target): call = (name, target)
+            default: break
+            }
+            if let call {
+                if call.name != script.name { return Self.placeName(call.name) }
+                if depth == 0, let target = call.target, let index = script.index(atPosition: target) {
+                    return destination(in: script, from: index, to: index + 60, depth: 1)
+                }
+            }
+            i += 1
+        }
+        return nil
+    }
+
+    /// Places that start a minigame the executable runs (Shiori can't yet).
+    static let minigames: Set<String> = ["Islamon", "Ping-Pong"]
+
+    /// `20_しろは0729AM` → Shiroha, `RB30_識_0729` → Shiki, `80_駄菓子屋0729` → Candy Store.
+    static func placeName(_ script: String) -> String {
+        let names: [(String, String)] = [
+            ("しろは", "Shiroha"), ("蒼", "Ao"), ("鴎", "Kamome"), ("紬", "Tsumugi"), ("うみ", "Umi"),
+            ("識", "Shiki"), ("美希", "Miki"), ("静久", "Shizuku"), ("駄菓子屋", "Candy Store"),
+            ("秘密基地", "Secret Base"), ("神社", "Shrine"), ("卓球", "Ping-Pong"), ("島モン", "Islamon"),
+            ("島キング", "Island King"), ("食堂", "Cafeteria"), ("日常", "Around the Island"),
+            ("突然のコイ", "A Sudden Koi"),
+        ]
+        return names.first { script.contains($0.0) }?.1 ?? script
     }
 
     // MARK: Layers and animation
