@@ -228,6 +228,11 @@ public final class LucaGame: @unchecked Sendable {
         return nil
     }
 
+    /// Whether a voice has a recording (narration carries ids with none).
+    public func hasVoice(_ id: Int) -> Bool {
+        id > 0 && voices.contains { $0.entry(id: id) != nil }
+    }
+
     public func music(_ id: Int) -> Data? {
         guard let archive = music, let entry = archive.entry(id: id) else { return nil }
         return patched(entry.name) ?? (try? archive.data(for: entry))

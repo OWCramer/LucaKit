@@ -291,7 +291,7 @@ case "spans":
             return out
         }
         var cols = [Bool](repeating: false, count: image.width), rows = [Bool](repeating: false, count: image.height)
-        for y in 0..<image.height { for x in 0..<image.width where image.rgba[(y * image.width + x) * 4 + 3] > 24 { cols[x] = true; rows[y] = true } }
+        for y in 0..<image.height { for x in 0..<image.width where image.rgba[(y * image.width + x) * 4 + 3] > (rest.count > 2 ? Int(rest[2])! : 24) { cols[x] = true; rows[y] = true } }
         print("columns:", spans(cols).joined(separator: " "))
         print("rows:", spans(rows).joined(separator: " "))
     } catch { fail("\(error)") }

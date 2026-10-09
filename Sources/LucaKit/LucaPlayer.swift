@@ -119,6 +119,11 @@ public final class LucaPlayer {
     public private(set) var movie: String?
     /// Text shown so far, for the backlog.
     public private(set) var backlog: [LucaMessage] = []
+    /// Where the line on screen is in the scripts (stable across runs), for the host's record
+    /// of lines already read.
+    public private(set) var messageKey: UInt64?
+    /// Options: a tap that reads on stops the line's voice (else it plays until the next one).
+    public var stopsVoiceOnClick = true
     public private(set) var finished = false
     /// Why the player stopped, when it stopped on an error.
     public private(set) var failure: String?
@@ -202,7 +207,7 @@ public final class LucaPlayer {
     public func click() {
         if case .click = wait {
             wait = .none
-            sounds.append(.stopVoice)
+            if stopsVoiceOnClick { sounds.append(.stopVoice) }
             run()
         } else if transition != nil {
             transition = nil
@@ -252,6 +257,15 @@ public final class LucaPlayer {
             frame.index += 1
             execute(instruction)
         }
+    }
+
+    /// FNV-1a over the script's name and the line's byte position.
+    static func key(_ script: String, _ position: Int) -> UInt64 {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in Array(script.utf8) + withUnsafeBytes(of: Int64(position).littleEndian, Array.init) {
+            hash = (hash ^ UInt64(byte)) &* 0x100_0000_01b3
+        }
+        return hash
     }
 
     private func finish(_ why: String? = nil) {
@@ -314,6 +328,7 @@ public final class LucaPlayer {
             if !faceLoadedForLine { layers = layers.filter { $0.value.kind != 7 } }
             faceLoadedForLine = false
             message = LucaMessage(speaker: parsed.speaker, text: parsed.text, voice: Int(voice))
+            messageKey = Self.key(frame.script.name, frame.script.instructions[frame.index - 1].position)
             windowVisible = true
             backlog.append(message!)
             if backlog.count > 300 { backlog.removeFirst() }
