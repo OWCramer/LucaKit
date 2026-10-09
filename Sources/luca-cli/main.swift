@@ -275,6 +275,27 @@ case "sheet":
         CGImageDestinationFinalize(dest)
     } catch { fail("\(error)") }
 
+case "spans":
+    // luca-cli spans <base folder> <name>: columns and rows that hold pixels (alpha > 24).
+    guard rest.count >= 2 else { fail("spans <base> <name>") }
+    do {
+        let game = try LucaGame(root: URL(fileURLWithPath: rest[0]))
+        guard let id = game.imageID(named: rest[1]), let image = game.image(id) else { fail("no picture") }
+        func spans(_ used: [Bool]) -> [String] {
+            var out: [String] = []; var start: Int?
+            for (i, u) in used.enumerated() {
+                if u, start == nil { start = i }
+                if !u, let s = start { out.append("\(s)-\(i - 1)"); start = nil }
+            }
+            if let s = start { out.append("\(s)-\(used.count - 1)") }
+            return out
+        }
+        var cols = [Bool](repeating: false, count: image.width), rows = [Bool](repeating: false, count: image.height)
+        for y in 0..<image.height { for x in 0..<image.width where image.rgba[(y * image.width + x) * 4 + 3] > 24 { cols[x] = true; rows[y] = true } }
+        print("columns:", spans(cols).joined(separator: " "))
+        print("rows:", spans(rows).joined(separator: " "))
+    } catch { fail("\(error)") }
+
 case "webm":
     // luca-cli webm <file.webm | pak entry: pak name> [out.ogg]
     guard let path = rest.first else { fail("webm <file> | webm <pak> <entry>") }
