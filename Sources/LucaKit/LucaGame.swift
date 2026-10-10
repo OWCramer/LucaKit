@@ -68,6 +68,14 @@ public final class LucaGame: @unchecked Sendable {
 
     // MARK: Scripts
 
+    /// Where a new game starts: the scenario flow script when there is one (REFLECTION BLUE's
+    /// `00_シナリオフロー`), else the first story script in SCRIPT.PAK (Harmonia's chapters
+    /// run in order from `届けたいメロディー_00章`). Names starting with `_` are data tables.
+    public var entryScript: String {
+        if scripts.entry(named: "00_シナリオフロー") != nil { return "00_シナリオフロー" }
+        return scripts.entries.first { !$0.name.hasPrefix("_") && !$0.name.isEmpty }?.name ?? "00_シナリオフロー"
+    }
+
     public func script(named name: String) throws -> LucaScript {
         cacheLock.lock()
         if let cached = scriptCache[name] { cacheLock.unlock(); return cached }

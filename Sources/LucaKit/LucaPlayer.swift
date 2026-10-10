@@ -166,10 +166,10 @@ public final class LucaPlayer {
     private var tweens: [Tween] = []
     private var quake: (frames: Int, elapsed: Int, amplitude: Double)?
 
-    public init(game: LucaGame, script: String = "00_シナリオフロー", table: [String] = LucaOpcodes.reflectionBlue) throws {
+    public init(game: LucaGame, script: String? = nil, table: [String] = LucaOpcodes.reflectionBlue) throws {
         self.game = game
         self.table = table
-        frame = Frame(script: try game.script(named: script), index: 0)
+        frame = Frame(script: try game.script(named: script ?? game.entryScript), index: 0)
     }
 
     public var currentScript: String { frame.script.name }
@@ -276,6 +276,32 @@ public final class LucaPlayer {
         return hash
     }
 
+    /// A line of text: shown in the window, kept in the backlog and history, waited on.
+    private func showLine(voice: Int, japanese: String, english: String) {
+        let raw = english.isEmpty ? japanese : english
+        if raw.isEmpty { return } // an empty MESSAGE ends a voiced pause
+        let parsed = Self.parse(raw, strings: strings)
+        if !faceLoadedForLine { layers = layers.filter { $0.value.kind != 7 } }
+        faceLoadedForLine = false
+        message = LucaMessage(speaker: parsed.speaker, text: parsed.text, voice: voice)
+        messageKey = Self.key(frame.script.name, frame.script.instructions[frame.index - 1].position)
+        windowVisible = true
+        backlog.append(message!)
+        if backlog.count > 500 { backlog.removeFirst() }
+        if voice > 0 { sounds.append(.voice(id: voice)) }
+        wait = .click
+        lineSerial += 1
+        history.append((lineSerial, saveState(withBacklog: false)))
+        if history.count > historyLimit { history.removeFirst(history.count - historyLimit) }
+    }
+
+    /// Scripts place pictures on the screen size they declare at startup (`EQUN 30001`):
+    /// 1920 wide in REFLECTION BLUE, 1280 in Harmonia Full HD, whose art is 1920 wide anyway.
+    private var coordinateScale: Double {
+        let declared = variables[30001] ?? 1920
+        return declared > 0 ? 1920 / Double(declared) : 1
+    }
+
     private func finish(_ why: String? = nil) {
         finished = true
         failure = why
@@ -330,21 +356,11 @@ public final class LucaPlayer {
             callStack.append(frame)
             _ = enter(script: script, at: target)
         case .message(let voice, let japanese, let english, _, _):
-            let raw = english.isEmpty ? japanese : english
-            if raw.isEmpty { break } // an empty MESSAGE ends a voiced pause
-            let parsed = Self.parse(raw, strings: strings)
-            if !faceLoadedForLine { layers = layers.filter { $0.value.kind != 7 } }
-            faceLoadedForLine = false
-            message = LucaMessage(speaker: parsed.speaker, text: parsed.text, voice: Int(voice))
-            messageKey = Self.key(frame.script.name, frame.script.instructions[frame.index - 1].position)
-            windowVisible = true
-            backlog.append(message!)
-            if backlog.count > 500 { backlog.removeFirst() }
-            if voice > 0 { sounds.append(.voice(id: Int(voice))) }
-            wait = .click
-            lineSerial += 1
-            history.append((lineSerial, saveState(withBacklog: false)))
-            if history.count > historyLimit { history.removeFirst(history.count - historyLimit) }
+            showLine(voice: Int(voice), japanese: japanese, english: english)
+        case .logBegin(_, _, let japanese, let english, _):
+            // Narration over the stage (Harmonia's opening): a line without a speaker, waited
+            // on like any other.
+            showLine(voice: 0, japanese: japanese, english: english)
         case .select(let values, let japanese, let english, _, _):
             let raw = english.isEmpty ? japanese : english
             // `[(expr),]Text` shows that option only while expr is nonzero (options already
@@ -373,7 +389,7 @@ public final class LucaPlayer {
         case .movie(let file, _):
             movie = file
             wait = .movie
-        case .logBegin, .dialog:
+        case .dialog:
             break
         case .expression:
             break
@@ -436,8 +452,8 @@ public final class LucaPlayer {
             setPicture(&layer, id)
             if instruction.params.count >= 14 {
                 _ = r.u16() // mode
-                layer.x = Double(Float(bitPattern: r.u32()))
-                layer.y = Double(Float(bitPattern: r.u32()))
+                layer.x = Double(Float(bitPattern: r.u32())) * coordinateScale
+                layer.y = Double(Float(bitPattern: r.u32())) * coordinateScale
                 layer.alpha = 1
                 layer.scale = 1
                 layer.scroll = false
@@ -461,8 +477,8 @@ public final class LucaPlayer {
             _ = r.u8()
             let mode = Int(r.u16())
             let frames = Int(r.u16())
-            let x = r.remaining >= 4 ? Double(Float(bitPattern: r.u32())) : nil
-            let y = r.remaining >= 4 ? Double(Float(bitPattern: r.u32())) : nil
+            let x = r.remaining >= 4 ? Double(Float(bitPattern: r.u32())) * coordinateScale : nil
+            let y = r.remaining >= 4 ? Double(Float(bitPattern: r.u32())) * coordinateScale : nil
             animate(number, x: x, y: y, frames: frames, easing: mode)
         case "FADE":
             let number = Int(r.u16())
