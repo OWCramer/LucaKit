@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "LucaKit",
-    platforms: [.iOS(.v18), .macOS(.v15)],
+    platforms: [.iOS(.v18), .macOS(.v15), .tvOS(.v18)],
     products: [
         .library(name: "LucaKit", targets: ["LucaKit"]),
         .executable(name: "luca-cli", targets: ["luca-cli"]),
