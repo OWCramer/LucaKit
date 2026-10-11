@@ -76,6 +76,9 @@ public final class LucaGame: @unchecked Sendable {
         return scripts.entries.first { !$0.name.hasPrefix("_") && !$0.name.isEmpty }?.name ?? "00_シナリオフロー"
     }
 
+    /// Every script's name in SCRIPT.PAK order (story scripts and `_` data tables alike).
+    public var scriptNames: [String] { scripts.entries.map(\.name).filter { !$0.isEmpty } }
+
     public func script(named name: String) throws -> LucaScript {
         cacheLock.lock()
         if let cached = scriptCache[name] { cacheLock.unlock(); return cached }

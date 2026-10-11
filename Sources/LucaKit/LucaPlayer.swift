@@ -52,6 +52,9 @@ public struct LucaMessage: Sendable, Equatable, Codable {
     /// base text, colours and sizes are dropped).
     public var text: String
     public var voice: Int
+    /// A `LOG_BEGIN` line: narration the PC game shows in its own box (Harmonia's NWIN)
+    /// rather than the message window. Absent in saves made before it was recorded.
+    public var narration: Bool?
 }
 
 /// Colour effects over the whole stage.
@@ -268,6 +271,15 @@ public final class LucaPlayer {
     }
 
     /// FNV-1a over the script's name and the line's byte position.
+    /// The read-log key of every line (MESSAGE and LOG_BEGIN) in a script, for telling whether
+    /// any of it has been read.
+    public static func lineKeys(in script: LucaScript) -> [UInt64] {
+        script.instructions.compactMap { instruction in
+            let name = LucaOpcodes.name(instruction.opcode)
+            return name == "MESSAGE" || name == "LOG_BEGIN" ? key(script.name, instruction.position) : nil
+        }
+    }
+
     static func key(_ script: String, _ position: Int) -> UInt64 {
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
         for byte in Array(script.utf8) + withUnsafeBytes(of: Int64(position).littleEndian, Array.init) {
@@ -277,13 +289,13 @@ public final class LucaPlayer {
     }
 
     /// A line of text: shown in the window, kept in the backlog and history, waited on.
-    private func showLine(voice: Int, japanese: String, english: String) {
+    private func showLine(voice: Int, japanese: String, english: String, narration: Bool = false) {
         let raw = english.isEmpty ? japanese : english
         if raw.isEmpty { return } // an empty MESSAGE ends a voiced pause
         let parsed = Self.parse(raw, strings: strings)
         if !faceLoadedForLine { layers = layers.filter { $0.value.kind != 7 } }
         faceLoadedForLine = false
-        message = LucaMessage(speaker: parsed.speaker, text: parsed.text, voice: voice)
+        message = LucaMessage(speaker: parsed.speaker, text: parsed.text, voice: voice, narration: narration ? true : nil)
         messageKey = Self.key(frame.script.name, frame.script.instructions[frame.index - 1].position)
         windowVisible = true
         backlog.append(message!)
@@ -360,7 +372,7 @@ public final class LucaPlayer {
         case .logBegin(_, _, let japanese, let english, _):
             // Narration over the stage (Harmonia's opening): a line without a speaker, waited
             // on like any other.
-            showLine(voice: 0, japanese: japanese, english: english)
+            showLine(voice: 0, japanese: japanese, english: english, narration: true)
         case .select(let values, let japanese, let english, _, _):
             let raw = english.isEmpty ? japanese : english
             // `[(expr),]Text` shows that option only while expr is nonzero (options already
