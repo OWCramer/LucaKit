@@ -1,4 +1,8 @@
 #!/bin/sh
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+# If a copy of the MPL was not distributed with this file, You can obtain one at
+# https://mozilla.org/MPL/2.0/.
+#
 # Fetches libvpx (BSD, Google's VP8/VP9 codec) and nestegg (ISC, Mozilla's WebM demuxer) into
 # Vendor/, pinned. Summer Pockets REFLECTION BLUE's movies and animated effects are VP9 WebM,
 # which iOS's own players don't play. Then run Scripts/luca/build-ios-vpx.sh.

@@ -1,4 +1,8 @@
 #!/bin/sh
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+# If a copy of the MPL was not distributed with this file, You can obtain one at
+# https://mozilla.org/MPL/2.0/.
+#
 # Builds libvpx's VP9 decoder for iOS and tvOS as Vendor/ShioriVPX.xcframework (static, with a
 # CVPX module map): devices with NEON, simulators in plain C (libvpx has no arm64 simulator
 # target).
